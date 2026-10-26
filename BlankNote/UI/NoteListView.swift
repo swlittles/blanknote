@@ -54,6 +54,14 @@ struct NoteListView: View {
                         .disabled(notes.isEmpty)
                 }
             } else {
+                #if os(macOS)
+                ToolbarItem {
+                    Button { Task { await nav.syncNow() } } label: {
+                        Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .help("Sync Now (check iCloud for changes)")
+                }
+                #endif
                 ToolbarItem(placement: .primaryAction) {
                     Button { nav.newNote() } label: {
                         Label("New Note", systemImage: "square.and.pencil")
@@ -61,6 +69,10 @@ struct NoteListView: View {
                 }
             }
         }
+        #if os(iOS)
+        // Pull down to sync.
+        .refreshable { await nav.syncNow() }
+        #endif
         .confirmationDialog("Delete every note in Recently Deleted?", isPresented: $confirmEmptyTrash, titleVisibility: .visible) {
             Button("Delete All", role: .destructive) { nav.emptyTrash() }
         } message: {

@@ -176,6 +176,25 @@ public final class NoteStore {
         return NotesContainer.resolve(useICloud: options.useICloud)
     }
 
+    /// What Sync Now found: where the notes live and what iCloud is still moving.
+    public struct SyncStatus: Equatable, Sendable {
+        public var location: Location
+        /// Notes changed on this device that iCloud hasn't uploaded yet.
+        public var uploading: Int
+        /// Notes changed elsewhere that haven't finished downloading here.
+        public var downloading: Int
+    }
+
+    /// Sync Now: asks iCloud for anything missing, re-reads the notes folder, and reports what's still
+    /// in transit. iCloud has no way to force an upload or a fetch from another device, so notes
+    /// deleted or edited on a phone that hasn't uploaded them yet arrive once it has.
+    public func syncNow() async -> SyncStatus {
+        var counts = watcher?.refresh() ?? (uploading: 0, downloading: 0)
+        await reconcile()
+        if let after = watcher?.refresh() { counts = after }
+        return SyncStatus(location: location, uploading: counts.uploading, downloading: counts.downloading)
+    }
+
     /// Re-scans the folder soon, coalescing bursts of change notifications.
     public func scheduleReconcile() {
         scheduledReconcile?.cancel()

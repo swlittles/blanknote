@@ -380,6 +380,26 @@ final class Navigator {
 
     /// Keeps the selection valid after the notes changed: follows a note or folder another window
     /// moved or renamed, and lets go of one that's gone.
+    /// Sync Now (menu, ⌘R, the Mac toolbar, pull to refresh on iPhone and iPad).
+    func syncNow() async {
+        let status = await store.syncNow()
+        let (message, icon): (String, String) = switch status {
+        case let s where s.location == .local:
+            ("Notes are stored on this device, not in iCloud", "icloud.slash")
+        case let s where s.uploading > 0 && s.downloading > 0:
+            ("Synced. iCloud is still uploading \(Self.notes(s.uploading)) and downloading \(Self.notes(s.downloading)).", "icloud.and.arrow.up")
+        case let s where s.uploading > 0:
+            ("Synced. iCloud is still uploading \(Self.notes(s.uploading)) from this device.", "icloud.and.arrow.up")
+        case let s where s.downloading > 0:
+            ("Synced. iCloud is still downloading \(Self.notes(s.downloading)).", "icloud.and.arrow.down")
+        default:
+            ("Up to date with iCloud", "checkmark.icloud")
+        }
+        toasts.show(message, systemImage: icon)
+    }
+
+    private static func notes(_ count: Int) -> String { count == 1 ? "1 note" : "\(count) notes" }
+
     /// The search index caught up (notes are listed before they're indexed): look up an open search again.
     func indexChanged() {
         if searchResults != nil { searchRefresh += 1 }

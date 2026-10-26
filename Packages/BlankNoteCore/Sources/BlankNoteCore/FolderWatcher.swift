@@ -48,6 +48,24 @@ final class FolderWatcher {
         metadataQuery = query
     }
 
+    /// Asks iCloud again for anything missing on this device, and counts what's still in transit:
+    /// notes not yet uploaded from here, and notes not yet downloaded.
+    func refresh() -> (uploading: Int, downloading: Int) {
+        guard let query = metadataQuery else { return (0, 0) }
+        downloadMissing(query)
+        query.disableUpdates()
+        defer { query.enableUpdates() }
+        var uploading = 0, downloading = 0
+        for case let item as NSMetadataItem in query.results {
+            guard let name = item.value(forAttribute: NSMetadataItemFSNameKey) as? String,
+                  name.hasSuffix(".md") || name.hasSuffix(".md.icloud") else { continue }
+            if item.value(forAttribute: NSMetadataUbiquitousItemIsUploadedKey) as? Bool == false { uploading += 1 }
+            if let status = item.value(forAttribute: NSMetadataUbiquitousItemDownloadingStatusKey) as? String,
+               status != NSMetadataUbiquitousItemDownloadingStatusCurrent { downloading += 1 }
+        }
+        return (uploading, downloading)
+    }
+
     /// Asks iCloud to download every note that is only a placeholder on this device.
     private func downloadMissing(_ query: NSMetadataQuery) {
         query.disableUpdates()

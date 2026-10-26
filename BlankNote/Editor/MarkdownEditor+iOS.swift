@@ -129,6 +129,10 @@ struct MarkdownEditor: UIViewRepresentable {
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
             guard !applyingEdit else { return true }
+            if let lines = MarkdownEditing.withPlainLineBreaks(text) {
+                apply(TextEdit(range: range, replacement: lines, selection: NSRange(location: range.location + (lines as NSString).length, length: 0)))
+                return false
+            }
             if text == "\n", let edit = MarkdownEditing.newline(in: textView.text, selection: range) {
                 apply(edit)
                 return false

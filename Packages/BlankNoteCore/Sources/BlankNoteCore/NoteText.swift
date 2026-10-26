@@ -4,7 +4,8 @@ import Foundation
 public enum NoteText {
     /// The note's title: its first non-blank line, without heading markers or inline formatting.
     public static func title(of body: String) -> String {
-        for line in body.split(separator: "\n", omittingEmptySubsequences: true) {
+        // Any line break ends the title, including the line separators Apple Notes uses for Shift-Return.
+        for line in body.split(whereSeparator: \.isNewline) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { continue }
             let title = stripInline(stripHeading(trimmed))

@@ -65,7 +65,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     // Anywhere on the Mac, even when BlankNote is in the background.
     case globalToggleApp, globalNewNote, globalSearch
     // Notes
-    case newNote, newFolder, searchNotes, togglePin, deleteNote, nextNote, previousNote, copyMarkdown, showInFinder
+    case newNote, newFolder, searchNotes, syncNow, togglePin, deleteNote, nextNote, previousNote, copyMarkdown, showInFinder
     // Profiles
     case nextProfile, previousProfile
     // View
@@ -85,7 +85,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     public var group: Group {
         switch self {
         case .globalToggleApp, .globalNewNote, .globalSearch: .global
-        case .newNote, .newFolder, .searchNotes, .togglePin, .deleteNote, .nextNote, .previousNote, .copyMarkdown, .showInFinder: .notes
+        case .newNote, .newFolder, .searchNotes, .syncNow, .togglePin, .deleteNote, .nextNote, .previousNote, .copyMarkdown, .showInFinder: .notes
         case .nextProfile, .previousProfile: .profiles
         case .biggerText, .smallerText, .actualSize, .toggleTheme: .view
         default: .format
@@ -105,6 +105,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .newNote: "New Note"
         case .newFolder: "New Folder"
         case .searchNotes: "Search All Notes"
+        case .syncNow: "Sync Now"
         case .togglePin: "Pin or Unpin Note"
         case .deleteNote: "Delete Note"
         case .nextNote: "Next Note"
@@ -164,6 +165,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .newNote: KeyCombo("n", cmd)
         case .newFolder: KeyCombo("n", shiftCmd)
         case .searchNotes: KeyCombo("f", optCmd)
+        case .syncNow: KeyCombo("r", cmd)
         case .togglePin: KeyCombo("p", shiftCmd)
         case .deleteNote: KeyCombo("delete", optCmd)
         case .nextNote: KeyCombo("down", optCmd)

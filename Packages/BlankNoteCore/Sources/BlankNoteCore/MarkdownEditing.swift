@@ -23,6 +23,14 @@ public enum FormatAction: String, CaseIterable, Sendable {
 /// The text changes behind the editor's Markdown commands. Pure functions of text and selection,
 /// so the iOS and Mac editors share them and the tests can check them.
 public enum MarkdownEditing {
+    /// Text pasted from Apple Notes and some web pages separates lines with U+2028/U+2029, which
+    /// Markdown (and the editor's line-by-line styling) doesn't treat as line breaks. Returns the text
+    /// with real line breaks, or nil if it has none of those.
+    public static func withPlainLineBreaks(_ text: String) -> String? {
+        guard text.contains("\u{2028}") || text.contains("\u{2029}") else { return nil }
+        return text.replacingOccurrences(of: "\u{2028}", with: "\n").replacingOccurrences(of: "\u{2029}", with: "\n")
+    }
+
     public struct LinePrefix: Equatable, Sendable {
         public enum Kind: Equatable, Sendable {
             case task(bullet: String, checked: Bool)

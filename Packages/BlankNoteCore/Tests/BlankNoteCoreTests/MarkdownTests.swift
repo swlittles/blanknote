@@ -149,4 +149,10 @@ struct MarkdownEditingTests {
         #expect(format(.heading, "### Ti|tle") == "Ti|tle")
         #expect(format(.codeBlock, "|") == "```\n|\n```")
     }
+
+    @Test func lineSeparatorsBecomeLineBreaks() {
+        #expect(MarkdownEditing.withPlainLineBreaks("Stream ToDos:\u{2028}3. Overlay\u{2029}4. Bots") == "Stream ToDos:\n3. Overlay\n4. Bots")
+        #expect(MarkdownEditing.withPlainLineBreaks("plain\ntext") == nil)
+        #expect(NoteText.title(of: "Stream ToDos:\u{2028}3. Create overlay") == "Stream ToDos:")
+    }
 }

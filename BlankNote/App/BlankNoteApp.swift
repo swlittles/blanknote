@@ -88,6 +88,7 @@ struct BlankNoteCommands: Commands {
         }
         CommandMenu("Note") {
             item(.searchNotes, withoutWindow: .search(nil)) { $0.requestSearch() }
+            item(.syncNow) { nav in Task { await nav.syncNow() } }
             Divider()
             item(.togglePin, title: navigator?.openNote?.pinned == true ? "Unpin Note" : "Pin Note") { $0.togglePinOpenNote() }
             item(.copyMarkdown) { $0.copyOpenNote() }

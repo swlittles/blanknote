@@ -149,6 +149,12 @@ struct MarkdownEditor: NSViewRepresentable {
             model.selection = textView.selectedRange()
         }
 
+        func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString text: String?) -> Bool {
+            guard let text, let lines = MarkdownEditing.withPlainLineBreaks(text) else { return true }
+            apply(TextEdit(range: range, replacement: lines, selection: NSRange(location: range.location + (lines as NSString).length, length: 0)))
+            return false
+        }
+
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             let text = textView.string
             let selection = textView.selectedRange()
