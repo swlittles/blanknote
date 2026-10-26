@@ -8,3 +8,5 @@ Packages/BlankNoteCore/.build/
 xcuserdata/
 # Your own bundle ID prefix and signing team (see Config/Signing.xcconfig).
 Config/Local.xcconfig
+# Personal strings checked by scripts/check_public.sh.
+.public-denylist
