@@ -68,11 +68,28 @@ struct MarkdownEditor: UIViewRepresentable {
                 styler.restyle(textView.textStorage, edited: nil)
             }
             if model.revision != revision {
+                // A reload of the note on screen keeps the cursor and scroll position; so does a
+                // new view of the note that was open (the window redrawn in a new theme).
+                let isNewView = revision == -1
                 revision = model.revision
+                let keepsPlace = model.revisionIsReload && !isNewView
+                let selection = keepsPlace ? textView.selectedRange : model.selection
+                let offset = keepsPlace ? Double(textView.contentOffset.y + textView.adjustedContentInset.top) : model.scrollOffset
                 textView.textStorage.setAttributedString(NSAttributedString(string: model.text, attributes: styler.baseAttributes))
-                textView.selectedRange = NSRange(location: 0, length: 0)
-                textView.setContentOffset(CGPoint(x: 0, y: -textView.adjustedContentInset.top), animated: false)
+                let length = textView.textStorage.length
+                let location = min(selection.location, length)
+                textView.selectedRange = NSRange(location: location, length: min(selection.length, length - location))
                 textView.undoManager?.removeAllActions()
+                textView.setContentOffset(CGPoint(x: 0, y: -textView.adjustedContentInset.top), animated: false)
+                if offset > 0 {
+                    DispatchQueue.main.async { [weak textView] in
+                        guard let textView else { return }
+                        textView.layoutIfNeeded()
+                        let top = -textView.adjustedContentInset.top
+                        let bottom = max(top, textView.contentSize.height - textView.bounds.height + textView.adjustedContentInset.bottom)
+                        textView.setContentOffset(CGPoint(x: 0, y: min(top + offset, bottom)), animated: false)
+                    }
+                }
             }
             textView.isEditable = !model.isReadOnly
             if model.wantsFocus {
@@ -100,6 +117,14 @@ struct MarkdownEditor: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             model.update(text: textView.text)
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            model.selection = textView.selectedRange
+        }
+
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            model.scrollOffset = Double(scrollView.contentOffset.y + scrollView.adjustedContentInset.top)
         }
 
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {

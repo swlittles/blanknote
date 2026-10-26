@@ -1,5 +1,6 @@
 import InkwellCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum EditorDefaults {
     #if os(macOS)
@@ -7,6 +8,19 @@ enum EditorDefaults {
     #else
     static let fontSize: Double = 17
     #endif
+}
+
+/// The open note's file, saved first so what's shared includes the latest typing (saving may
+/// also rename the file, so its path is looked up then).
+struct SharedNote: Transferable {
+    let nav: Navigator
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: UTType(filenameExtension: "md", conformingTo: .plainText) ?? .plainText) { note in
+            guard let url = await note.nav.savedOpenNoteURL() else { throw CocoaError(.fileNoSuchFile) }
+            return SentTransferredFile(url)
+        }
+    }
 }
 
 /// The detail column: the open note, or a placeholder.
@@ -66,11 +80,9 @@ struct EditorPane: View {
                     Label(note.pinned ? "Unpin" : "Pin", systemImage: note.pinned ? "pin.fill" : "pin")
                 }
             }
-            if let root = store.rootURL {
-                ToolbarItem {
-                    ShareLink(item: root.appendingPathComponent(note.path)) {
-                        Label("Share", systemImage: "square.and.arrow.up")
-                    }
+            ToolbarItem {
+                ShareLink(item: SharedNote(nav: nav), preview: SharePreview(note.displayTitle)) {
+                    Label("Share", systemImage: "square.and.arrow.up")
                 }
             }
             ToolbarItem {

@@ -7,6 +7,8 @@ import Foundation
 /// (Obsidian, Jekyll, Hugo…) survives a round trip.
 public struct FrontMatter: Equatable, Sendable {
     public struct Entry: Equatable, Sendable {
+        /// Empty for blank lines and comments, which are kept as entries of their own so that
+        /// changing a neighbouring key leaves them alone.
         public var key: String
         /// The entry's raw lines: `key: value` followed by any indented or `- item` lines.
         public var lines: [String]
@@ -58,7 +60,7 @@ public struct FrontMatter: Equatable, Sendable {
             return
         }
         let line = "\(key): \(value)"
-        if let index = entries.firstIndex(where: { $0.key == key }) {
+        if !key.isEmpty, let index = entries.firstIndex(where: { $0.key == key }) {
             entries[index].lines = [line]
         } else {
             entries.append(Entry(key: key, lines: [line]))
@@ -73,13 +75,17 @@ public struct FrontMatter: Equatable, Sendable {
         guard text.count >= 2, let first = text.first, first == text.last, first == "\"" || first == "'" else {
             return text
         }
-        return String(text.dropFirst().dropLast())
+        let inner = String(text.dropFirst().dropLast())
+        // Undo `quoteIfNeeded`'s escaping (YAML's double-quoted style); single quotes double up.
+        return first == "\""
+            ? inner.replacingOccurrences(of: "\\\\", with: "\u{0}").replacingOccurrences(of: "\\\"", with: "\"").replacingOccurrences(of: "\u{0}", with: "\\")
+            : inner.replacingOccurrences(of: "''", with: "'")
     }
 
     static func quoteIfNeeded(_ text: String) -> String {
         let special = CharacterSet(charactersIn: ":,[]{}#&*!|>'\"%@`")
         if text.rangeOfCharacter(from: special) != nil || text != text.trimmingCharacters(in: .whitespaces) {
-            return "\"" + text.replacingOccurrences(of: "\"", with: "\\\"") + "\""
+            return "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
         }
         return text
     }
@@ -114,7 +120,10 @@ public struct NoteFile: Equatable, Sendable {
         for line in lines[1..<close] {
             let startsEntry = !line.isEmpty && !line.hasPrefix(" ") && !line.hasPrefix("\t")
                 && !line.hasPrefix("-") && !line.hasPrefix("#")
-            if startsEntry {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty || line.hasPrefix("#") {
+                // Blank lines and comments stand alone, so replacing the entry above keeps them.
+                frontMatter.entries.append(.init(key: "", lines: [line]))
+            } else if startsEntry {
                 // A top-level line without a colon means this isn't front matter after all,
                 // just a note that starts with a horizontal rule.
                 guard let colon = line.firstIndex(of: ":") else {

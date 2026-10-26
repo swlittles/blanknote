@@ -11,14 +11,20 @@ public final class ProfileStore {
     /// Deleted profiles' folders go here (hidden, so they can still be recovered in Finder).
     public static let deletedFolder = ".deleted-profiles"
 
+    /// Written at the top of the container while notes from before profiles move into the first
+    /// profile, so an interrupted move is finished next time (and nothing is mistaken for a profile).
+    static let migrationMarker = ".inkwell-migrating"
+
     public enum ProfileError: LocalizedError {
         case lastProfile
         case notFound
+        case notDownloaded
 
         public var errorDescription: String? {
             switch self {
             case .lastProfile: "You need at least one profile."
             case .notFound: "That profile no longer exists."
+            case .notDownloaded: "That profile hasn't finished downloading from iCloud yet."
             }
         }
     }
@@ -35,6 +41,12 @@ public final class ProfileStore {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let activeKey: String
     @ObservationIgnored private var startTask: Task<Void, Never>?
+    /// Profiles shown under their folder name because their settings file hasn't downloaded yet:
+    /// nothing is written for them, so the real settings aren't overwritten when they arrive.
+    @ObservationIgnored private var pending: Set<UUID> = []
+    /// Profiles whose settings file couldn't be read. They're never rewritten on their own, only
+    /// when the user changes them.
+    @ObservationIgnored private var unreadable: Set<UUID> = []
 
     /// `container` replaces iCloud Drive / Documents (tests, demo data).
     public init(container: URL? = nil, useICloud: Bool = true, defaults: UserDefaults = .standard) {
@@ -75,6 +87,7 @@ public final class ProfileStore {
         try? FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
         containerURL = container
         self.location = location
+        finishMigration()
         refresh()
         if profiles.isEmpty { createFirstProfile() }
         if activeID == nil {
@@ -97,28 +110,41 @@ public final class ProfileStore {
         var found: [Profile] = []
         var unclaimed: [String] = []
         var seenIDs = Set<UUID>()
+        pending = []
+        unreadable = []
         for folder in directories {
             let metadataPath = "\(folder)/\(Self.metadataFile)"
-            if fileSystem.exists(metadataPath), let text = try? fileSystem.read(metadataPath),
-               let metadata = try? Self.decoder.decode(Profile.Metadata.self, from: Data(text.utf8)) {
-                var profile = Profile(metadata: metadata, folderName: folder)
-                // A folder copied in Finder carries its original's ID: give the copy its own.
-                if !seenIDs.insert(profile.id).inserted {
-                    profile.id = UUID()
-                    try? write(profile)
+            if fileSystem.exists(metadataPath) {
+                if let text = try? fileSystem.read(metadataPath),
+                   let metadata = try? Self.decoder.decode(Profile.Metadata.self, from: Data(text.utf8)) {
+                    var profile = Profile(metadata: metadata, folderName: folder)
+                    // A folder copied in Finder carries its original's ID: give the copy its own.
+                    if !seenIDs.insert(profile.id).inserted {
+                        profile.id = UUID()
+                        try? write(profile)
+                    }
+                    found.append(profile)
+                } else {
+                    // Damaged, or written by a newer version: show the profile, but leave the file be.
+                    let profile = Profile(id: Self.placeholderID(for: folder), name: folder, theme: .claude, order: Int.max, folderName: folder)
+                    unreadable.insert(profile.id)
+                    found.append(profile)
                 }
-                found.append(profile)
             } else if fileSystem.exists("\(folder)/.\(Self.metadataFile).icloud") {
                 // Not downloaded yet on this device: show it under its folder name meanwhile.
                 try? FileManager.default.startDownloadingUbiquitousItem(at: containerURL.appendingPathComponent("\(folder)/.\(Self.metadataFile).icloud"))
-                found.append(Profile(id: Self.placeholderID(for: folder), name: folder, theme: .claude, order: Int.max, folderName: folder))
+                let profile = Profile(id: Self.placeholderID(for: folder), name: folder, theme: .claude, order: Int.max, folderName: folder)
+                pending.insert(profile.id)
+                found.append(profile)
             } else {
                 unclaimed.append(folder)
             }
         }
         // Once profiles exist, a new top-level folder (say, made in Finder) is a new profile.
-        // Before then, top-level folders are ordinary note folders waiting to move into the first profile.
-        if !found.isEmpty {
+        // Before then, top-level folders are ordinary note folders waiting to move into the first
+        // profile, and so are any left behind by an unfinished move.
+        let migrating = FileManager.default.fileExists(atPath: containerURL.appendingPathComponent(Self.migrationMarker).path)
+        if !found.isEmpty, !migrating {
             for folder in unclaimed {
                 let profile = Profile(name: folder, theme: Self.nextTheme(after: found), order: (found.map(\.order).filter { $0 != Int.max }.max() ?? -1) + 1, folderName: folder)
                 if (try? write(profile)) != nil { found.append(profile) }
@@ -134,20 +160,51 @@ public final class ProfileStore {
     private func createFirstProfile() {
         guard let containerURL else { return }
         let fileSystem = NoteFileSystem(root: containerURL)
-        let existing = ((try? FileManager.default.contentsOfDirectory(atPath: containerURL.path)) ?? [])
-            .filter { !$0.hasPrefix(".") || $0 == NoteFileSystem.trashFolder }
+        let existing = migratableItems()
         let folder = uniqueFolderName("Personal", taken: Set(existing.map { $0.lowercased() }))
         let profile = Profile(name: "Personal", theme: .claude, order: 0, folderName: folder)
         do {
+            // The marker and the profile first, so if moving stops partway the next launch knows
+            // where the rest goes.
+            if !existing.isEmpty { try fileSystem.write(folder, to: Self.migrationMarker) }
             try fileSystem.createFolder(folder)
-            for item in existing {
-                try fileSystem.move(item, to: "\(folder)/\(item)")
-            }
             try write(profile)
             profiles = [profile]
         } catch {
-            // Leave whatever moved where it is; the next launch finishes the move.
+            return
         }
+        finishMigration()
+    }
+
+    /// Top-level items from before profiles: notes, note folders and Recently Deleted.
+    private func migratableItems() -> [String] {
+        guard let containerURL else { return [] }
+        let fileSystem = NoteFileSystem(root: containerURL)
+        return ((try? FileManager.default.contentsOfDirectory(atPath: containerURL.path)) ?? [])
+            .filter { !$0.hasPrefix(".") || $0 == NoteFileSystem.trashFolder }
+            .filter { !fileSystem.exists("\($0)/\(Self.metadataFile)") && !fileSystem.exists("\($0)/.\(Self.metadataFile).icloud") }
+            .sorted()
+    }
+
+    /// Moves what's left of the notes from before profiles into the first profile.
+    private func finishMigration() {
+        guard let containerURL else { return }
+        let fileSystem = NoteFileSystem(root: containerURL)
+        guard fileSystem.exists(Self.migrationMarker), let folder = try? fileSystem.read(Self.migrationMarker),
+              !folder.isEmpty, fileSystem.exists(folder) else { return }
+        var movedAll = true
+        for item in migratableItems() where item != folder {
+            var destination = "\(folder)/\(item)"
+            let base = (item as NSString).deletingPathExtension
+            let ext = (item as NSString).pathExtension
+            var number = 2
+            while fileSystem.exists(destination) {
+                destination = "\(folder)/\(base) \(number)" + (ext.isEmpty ? "" : ".\(ext)")
+                number += 1
+            }
+            do { try fileSystem.move(item, to: destination) } catch { movedAll = false }
+        }
+        if movedAll { try? fileSystem.remove(Self.migrationMarker) }
     }
 
     // MARK: Changes
@@ -181,6 +238,7 @@ public final class ProfileStore {
     /// Renames the profile and its folder (when the new name is free as a folder name).
     public func rename(_ id: UUID, to name: String) throws {
         guard let containerURL, var profile = profiles.first(where: { $0.id == id }) else { throw ProfileError.notFound }
+        guard !pending.contains(id) else { throw ProfileError.notDownloaded }
         profile.name = Self.cleanName(name)
         let wanted = NoteText.fileName(for: profile.name)
         if wanted != profile.folderName {
@@ -192,14 +250,17 @@ public final class ProfileStore {
             profile.folderName = folder
         }
         try write(profile)
+        unreadable.remove(id)
         replace(profile)
     }
 
     public func setTheme(_ theme: ProfileTheme, for id: UUID) throws {
         guard var profile = profiles.first(where: { $0.id == id }) else { throw ProfileError.notFound }
+        guard !pending.contains(id) else { throw ProfileError.notDownloaded }
         guard profile.theme != theme else { return }
         profile.theme = theme
         try write(profile)
+        unreadable.remove(id)
         replace(profile)
     }
 
@@ -208,7 +269,8 @@ public final class ProfileStore {
         let listed = ids.compactMap { id in profiles.first { $0.id == id } }
         var reordered: [Profile] = []
         for (order, var profile) in (listed + profiles.filter { !ids.contains($0.id) }).enumerated() {
-            if profile.order != order {
+            // Profiles without settings of their own get their order once they have them.
+            if profile.order != order, !pending.contains(profile.id), !unreadable.contains(profile.id) {
                 profile.order = order
                 try write(profile)
             }

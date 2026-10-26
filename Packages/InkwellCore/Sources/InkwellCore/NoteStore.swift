@@ -54,8 +54,11 @@ public final class NoteStore {
 
     public struct Notice: Identifiable, Equatable, Sendable {
         public enum Kind: Equatable, Sendable {
-            /// Two devices edited the note at once; the other version was saved as a copy.
+            /// Two devices (or apps) edited the note at once; the other version was saved as a copy.
             case keptBothVersions(title: String)
+            /// The open note was moved or deleted elsewhere while it had unsaved edits, so they
+            /// were saved as a new note.
+            case savedAsNewNote(title: String)
         }
         public let id = UUID()
         public var kind: Kind
@@ -63,6 +66,10 @@ public final class NoteStore {
 
     public func clearNotices() {
         notices.removeAll()
+    }
+
+    public func post(_ kind: Notice.Kind) {
+        notices.append(Notice(kind: kind))
     }
 
     @ObservationIgnored private let options: Options
@@ -73,9 +80,17 @@ public final class NoteStore {
     @ObservationIgnored private var scheduledReconcile: Task<Void, Never>?
     @ObservationIgnored private var reconciling = false
     @ObservationIgnored private var reconcileAgain = false
-    /// Bumped by every change made here, so a folder scan that started before it is thrown away
-    /// instead of overwriting newer state.
-    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var pendingFull = false
+    /// Bumped when the folder moves, so a scan of the old place is thrown away.
+    @ObservationIgnored private var rootGeneration = 0
+    /// Notes and folders changed here while a scan runs: what's in memory for them is newer than
+    /// what the scan saw.
+    @ObservationIgnored private var changedPaths: Set<String> = []
+    @ObservationIgnored private var foldersChanged = false
+    /// Where notes and folders moved by this store went (old path → new path), so windows showing
+    /// one that another window moved, renamed or trashed can follow it.
+    @ObservationIgnored private var movedPaths: [String: String] = [:]
+    @ObservationIgnored private var movedFolders: [String: String] = [:]
 
     public init(options: Options = Options()) {
         self.options = options
@@ -100,7 +115,16 @@ public final class NoteStore {
         rootURL = root
         self.location = location
         fileSystem = NoteFileSystem(root: root)
-        index = try? SearchIndex(url: options.indexURL ?? Self.defaultIndexURL, rootIdentity: root.standardizedFileURL.path)
+        let indexURL = options.indexURL ?? Self.defaultIndexURL
+        do {
+            index = try SearchIndex(url: indexURL, rootIdentity: root.standardizedFileURL.path)
+        } catch {
+            // A damaged cache: start a new one (notes load without an index if even that fails).
+            for suffix in ["", "-wal", "-shm"] {
+                try? FileManager.default.removeItem(at: URL(fileURLWithPath: indexURL.path + suffix))
+            }
+            index = try? SearchIndex(url: indexURL, rootIdentity: root.standardizedFileURL.path)
+        }
 
         if let cached = await index?.allSummaries(), !cached.isEmpty {
             notes = cached
@@ -129,7 +153,7 @@ public final class NoteStore {
         guard root != rootURL else { return }
         rootURL = root
         fileSystem = NoteFileSystem(root: root)
-        generation += 1
+        rootGeneration += 1
         if options.watchForChanges {
             watcher = FolderWatcher(root: root, iCloud: location == .iCloud) { [weak self] in
                 Task { @MainActor in self?.scheduleReconcile() }
@@ -162,9 +186,10 @@ public final class NoteStore {
     /// Brings `notes`, `folders` and the index in line with the files, re-reading only files whose
     /// modification date changed. `full` re-reads everything (rebuilding the index).
     public func reconcile(full: Bool = false) async {
-        guard let fileSystem, let index else { return }
+        guard fileSystem != nil else { return }
         if reconciling {
             reconcileAgain = true
+            if full { pendingFull = true }
             return
         }
         reconciling = true
@@ -172,18 +197,31 @@ public final class NoteStore {
         var forceFull = full
         repeat {
             reconcileAgain = false
-            let startGeneration = generation
+            forceFull = forceFull || pendingFull
+            pendingFull = false
+            guard let fileSystem else { return }
+            let startRoot = rootGeneration
+            changedPaths = []
+            foldersChanged = false
             let known = forceFull ? [:] : Dictionary(notes.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
             let resolveConflicts = location == .iCloud
-            let outcome = await Task.detached(priority: .utility) {
+            var outcome = await Task.detached(priority: .utility) {
                 Self.scan(fileSystem, known: known, resolveConflicts: resolveConflicts)
             }.value
-            guard startGeneration == generation else {
+            guard startRoot == rootGeneration else {
                 reconcileAgain = true
                 continue
             }
-            if forceFull { await index.removeAll() }
-            await index.apply(upserts: outcome.upserts, removals: outcome.removals)
+            // Notes and folders changed here during the scan keep their newer state; the rest of
+            // the scan still applies, so a busy folder doesn't keep a scan from ever finishing.
+            let changed = changedPaths
+            if !changed.isEmpty {
+                outcome.notes = (outcome.notes.filter { !changed.contains($0.path) } + notes.filter { changed.contains($0.path) })
+                    .sorted { $0.path < $1.path }
+                outcome.upserts.removeAll { changed.contains($0.summary.path) }
+                outcome.removals.removeAll { changed.contains($0) }
+            }
+            if foldersChanged { outcome.folders = folders }
             if outcome.notes != notes.sorted(by: { $0.path < $1.path }) { notes = outcome.notes }
             if outcome.folders != folders { folders = outcome.folders }
             if !outcome.conflicted.isEmpty {
@@ -191,6 +229,12 @@ public final class NoteStore {
                 notices += outcome.conflicted.map { path in
                     Notice(kind: .keptBothVersions(title: outcome.notes.first { $0.path == path }?.displayTitle ?? Self.baseName(path)))
                 }
+            }
+            if let index {
+                if forceFull { await index.removeAll() }
+                await index.apply(upserts: outcome.upserts, removals: outcome.removals)
+                // A rebuild may have emptied the index after notes saved meanwhile were indexed.
+                if forceFull { await reindex(paths: changedPaths) }
             }
             forceFull = false
         } while reconcileAgain
@@ -238,6 +282,39 @@ public final class NoteStore {
         notes.first { $0.path == path }
     }
 
+    public func fileExists(_ path: String) -> Bool {
+        fileSystem?.exists(path) ?? false
+    }
+
+    /// Where a note moved by this store is now (following renames, moves and Recently Deleted),
+    /// or nil if it wasn't moved here.
+    public func currentPath(for path: String) -> String? {
+        var current = path
+        var steps = 0
+        while let next = movedPaths[current], next != current, steps < 64 {
+            current = next
+            steps += 1
+        }
+        return current == path ? nil : current
+    }
+
+    /// Where a folder renamed by this store is now, or nil if it wasn't renamed here.
+    public func currentFolder(for path: String) -> String? {
+        var current = path
+        var steps = 0
+        while steps < 64 {
+            if let next = movedFolders[current], next != current {
+                current = next
+            } else if let parent = movedFolders.keys.first(where: { current.hasPrefix($0 + "/") }), let next = movedFolders[parent] {
+                current = next + current.dropFirst(parent.count)
+            } else {
+                break
+            }
+            steps += 1
+        }
+        return current == path ? nil : current
+    }
+
     public func readNote(_ path: String) throws -> NoteFile {
         NoteFile(contents: try requireFileSystem().read(path))
     }
@@ -266,22 +343,33 @@ public final class NoteStore {
     @discardableResult
     public func createNote(in folder: String, body: String = "") throws -> String {
         let fileSystem = try requireFileSystem()
-        let title = NoteText.title(of: body)
+        let file = Self.merging(body, into: NoteFile(body: ""))
+        let title = NoteText.title(of: file.body)
         let path = fileSystem.uniquePath(in: folder, name: title.isEmpty ? "Untitled" : NoteText.fileName(for: title))
-        try write(NoteFile(body: body), to: path, replacing: nil)
+        try write(file, to: path, replacing: nil)
         return path
     }
 
     /// Saves a new body (keeping the front matter) and renames the file to follow the title.
     /// Returns the note's path, which changes when the file was renamed.
+    ///
+    /// `base` is the text the editor started from. If the file's text has changed since (another
+    /// app or device saved it), that version is kept as a "conflicted copy" note before it's replaced.
     @discardableResult
-    public func saveNote(_ path: String, body: String) throws -> String {
+    public func saveNote(_ path: String, body: String, base: String? = nil) throws -> String {
         let fileSystem = try requireFileSystem()
-        var file = (try? readNote(path)) ?? NoteFile(body: "")
-        file.body = body
+        let disk = try? readNote(path)
+        if let base, let disk, disk.body != Self.merging(base, into: disk).body, disk.body != Self.merging(body, into: disk).body {
+            let copy = fileSystem.uniquePath(in: (path as NSString).deletingLastPathComponent,
+                                             name: "\(Self.baseName(path)) (conflicted copy)", extension: Self.fileExtension(path))
+            try write(disk, to: copy, replacing: nil)
+            let title = NoteText.title(of: disk.body)
+            post(.keptBothVersions(title: title.isEmpty ? Self.baseName(path) : title))
+        }
+        let file = Self.merging(body, into: disk ?? NoteFile(body: ""))
         var target = path
         if !Self.isTrashed(path) {
-            let title = NoteText.title(of: body)
+            let title = NoteText.title(of: file.body)
             let name = title.isEmpty ? "Untitled" : NoteText.fileName(for: title)
             let folder = (path as NSString).deletingLastPathComponent
             let ext = (path as NSString).pathExtension
@@ -290,6 +378,22 @@ public final class NoteStore {
         if target != path { try fileSystem.move(path, to: target) }
         try write(file, to: target, replacing: path)
         return target
+    }
+
+    /// The note with `body` as its text. A body that starts with front matter of its own (say a
+    /// whole note pasted from Obsidian) supplies the file's front matter, rather than being saved
+    /// under the existing front matter, where it would pile up again on every save.
+    static func merging(_ body: String, into file: NoteFile) -> NoteFile {
+        var file = file
+        let typed = NoteFile(contents: body)
+        guard !typed.frontMatter.isEmpty else {
+            file.body = body
+            return file
+        }
+        let typedKeys = Set(typed.frontMatter.entries.map(\.key).filter { !$0.isEmpty })
+        file.frontMatter.entries = typed.frontMatter.entries + file.frontMatter.entries.filter { !$0.key.isEmpty && !typedKeys.contains($0.key) }
+        file.body = typed.body
+        return file
     }
 
     public func setPinned(_ pinned: Bool, for path: String) throws {
@@ -305,7 +409,9 @@ public final class NoteStore {
         guard (path as NSString).deletingLastPathComponent != folder else { return path }
         let target = fileSystem.uniquePath(in: folder, name: Self.baseName(path), extension: Self.fileExtension(path))
         try fileSystem.move(path, to: target)
-        try write(try readNote(target), to: target, replacing: path)
+        // Only the path changed: no need to rewrite the file.
+        record(try readNote(target), at: target, replacing: path, modified: fileSystem.modificationDate(target) ?? Date())
+        if !folder.isEmpty, !folders.contains(folder) { addFolder(folder) }
         return target
     }
 
@@ -336,15 +442,13 @@ public final class NoteStore {
         let target = fileSystem.uniquePath(in: folder, name: Self.baseName(path), extension: Self.fileExtension(path))
         try fileSystem.move(path, to: target)
         try write(file, to: target, replacing: path)
-        if !folder.isEmpty, !folders.contains(folder) {
-            folders = (folders + [folder]).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-        }
+        if !folder.isEmpty, !folders.contains(folder) { addFolder(folder) }
         return target
     }
 
     public func deleteNotePermanently(_ path: String) throws {
         try requireFileSystem().remove(path)
-        generation += 1
+        changedPaths.insert(path)
         notes.removeAll { $0.path == path }
         let index = self.index
         Task { await index?.apply(upserts: [], removals: [path]) }
@@ -374,9 +478,20 @@ public final class NoteStore {
         let fileSystem = try requireFileSystem()
         let path = uniqueFolderPath(named: name, in: parent, fileSystem: fileSystem)
         try fileSystem.createFolder(path)
-        generation += 1
-        folders = (folders + [path]).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        addFolder(path)
         return path
+    }
+
+    private func addFolder(_ path: String) {
+        foldersChanged = true
+        var added = [path]
+        // Its parents too, for a folder made inside one that doesn't exist yet.
+        var parent = (path as NSString).deletingLastPathComponent
+        while !parent.isEmpty, !folders.contains(parent) {
+            added.append(parent)
+            parent = (parent as NSString).deletingLastPathComponent
+        }
+        folders = (folders + added.filter { !folders.contains($0) }).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
     /// Renames a folder and returns its new path.
@@ -386,11 +501,11 @@ public final class NoteStore {
         let parent = (path as NSString).deletingLastPathComponent
         let cleanName = NoteText.fileName(for: name)
         guard cleanName != (path as NSString).lastPathComponent else { return path }
-        let target = cleanName.lowercased() == (path as NSString).lastPathComponent.lowercased()
-            ? (parent.isEmpty ? cleanName : "\(parent)/\(cleanName)")
+        let caseOnly = parent.isEmpty ? cleanName : "\(parent)/\(cleanName)"
+        let target = cleanName.lowercased() == (path as NSString).lastPathComponent.lowercased() && !NoteFileSystem.isHiddenFolder(caseOnly)
+            ? caseOnly
             : uniqueFolderPath(named: name, in: parent, fileSystem: fileSystem)
         try fileSystem.move(path, to: target)
-        generation += 1
 
         func moved(_ itemPath: String) -> String? {
             guard itemPath == path || itemPath.hasPrefix(path + "/") else { return nil }
@@ -404,7 +519,22 @@ public final class NoteStore {
             note.path = newPath
             return note
         }
+        for item in renamed {
+            changedPaths.formUnion([item.old, item.new])
+            noteMoved(item.old, to: item.new)
+        }
+        foldersChanged = true
+        movedFolders[path] = target
+        movedFolders[target] = nil
         folders = folders.map { moved($0) ?? $0 }.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+
+        // Notes deleted from the folder go back to its new name when restored.
+        for note in notes where note.isTrashed {
+            guard var file = try? readNote(note.path), let from = file.frontMatter.value("trashed-from"),
+                  let newFrom = moved(from) else { continue }
+            file.frontMatter.set("trashed-from", FrontMatter.quoteIfNeeded(newFrom))
+            try? write(file, to: note.path, replacing: note.path)
+        }
         await reindex(renamed)
         return target
     }
@@ -413,12 +543,20 @@ public final class NoteStore {
     /// Returns the notes' paths in Recently Deleted.
     @discardableResult
     public func deleteFolder(_ path: String) throws -> [String] {
+        let fileSystem = try requireFileSystem()
         var trashed: [String] = []
         for note in notes where note.path.hasPrefix(path + "/") {
             trashed.append(try trashNote(note.path))
         }
-        try requireFileSystem().remove(path)
-        generation += 1
+        if fileSystem.containsFiles(path) {
+            // Files Inkwell doesn't show (images, notes still downloading from iCloud…) aren't
+            // erased: the folder with what's left goes in the Recently Deleted folder.
+            let name = (path as NSString).lastPathComponent
+            try fileSystem.move(path, to: uniqueFolderPath(named: "\(name) (deleted folder)", in: NoteFileSystem.trashFolder, fileSystem: fileSystem))
+        } else {
+            try fileSystem.remove(path)
+        }
+        foldersChanged = true
         folders.removeAll { $0 == path || $0.hasPrefix(path + "/") }
         return trashed
     }
@@ -429,7 +567,7 @@ public final class NoteStore {
         while true {
             let folderName = number == 1 ? base : "\(base) \(number)"
             let path = parent.isEmpty ? folderName : "\(parent)/\(folderName)"
-            if !fileSystem.exists(path) { return path }
+            if !fileSystem.exists(path), parent == NoteFileSystem.trashFolder || !NoteFileSystem.isHiddenFolder(path) { return path }
             number += 1
         }
     }
@@ -444,9 +582,19 @@ public final class NoteStore {
     /// Writes a note and updates the in-memory summary and the index to match.
     private func write(_ file: NoteFile, to path: String, replacing oldPath: String?) throws {
         let modified = try requireFileSystem().write(file.contents, to: path)
+        record(file, at: path, replacing: oldPath, modified: modified)
+    }
+
+    /// Updates the in-memory summary and the index for a note now at `path`.
+    private func record(_ file: NoteFile, at path: String, replacing oldPath: String?, modified: Date) {
         let created = summary(for: oldPath ?? path)?.created ?? modified
         let summary = NoteSummary(path: path, file: file, created: created, modified: modified)
-        generation += 1
+        changedPaths.insert(path)
+        movedPaths[path] = nil
+        if let oldPath, oldPath != path {
+            changedPaths.insert(oldPath)
+            noteMoved(oldPath, to: path)
+        }
         notes.removeAll { $0.path == path || $0.path == oldPath }
         notes.append(summary)
         let removals = oldPath.flatMap { $0 == path ? nil : [$0] } ?? []
@@ -454,7 +602,19 @@ public final class NoteStore {
         Task { await index?.apply(upserts: [(summary, file.body)], removals: removals) }
     }
 
-    private func reindex(_ renamed: [(old: String, new: String)]) async {
+    private func noteMoved(_ oldPath: String, to newPath: String) {
+        if movedPaths.count > 500 { movedPaths.removeAll() }
+        movedPaths[oldPath] = newPath
+        // Whatever is at the new path now is this note, not one that once moved away from there.
+        movedPaths[newPath] = nil
+    }
+
+    /// Re-reads these notes into the index.
+    private func reindex(paths: Set<String>) async {
+        await reindex(paths.filter { summary(for: $0) != nil }.map { (old: $0, new: $0) }, removingOld: false)
+    }
+
+    private func reindex(_ renamed: [(old: String, new: String)], removingOld: Bool = true) async {
         guard let fileSystem, let index, !renamed.isEmpty else { return }
         let notes = renamed.compactMap { item in summary(for: item.new) }
         let upserts = await Task.detached(priority: .utility) {
@@ -463,10 +623,10 @@ public final class NoteStore {
                 return (note, NoteFile(contents: text).body)
             }
         }.value
-        await index.apply(upserts: upserts, removals: renamed.map(\.old))
+        await index.apply(upserts: upserts, removals: removingOld ? renamed.map(\.old) : [])
     }
 
-    static func isTrashed(_ path: String) -> Bool {
+    public static func isTrashed(_ path: String) -> Bool {
         path.hasPrefix(NoteFileSystem.trashFolder + "/")
     }
 

@@ -74,6 +74,7 @@ struct InkwellCommands: Commands {
     let activeProfileID: UUID?
     let app: AppModel
     @FocusedValue(\.navigator) private var focusedNavigator
+    @Environment(\.openWindow) private var openWindow
 
     /// The focused window, or else the last active one (the Mac's Settings window is in front, or
     /// SwiftUI hasn't reported focus yet).
@@ -81,11 +82,12 @@ struct InkwellCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            item(.newNote) { $0.newNote() }
+            item(.newNote, withoutWindow: .newNote(text: nil)) { $0.newNote() }
             item(.newFolder) { $0.newFolderParent = "" }
+            Button("New Window") { openWindow(id: "main") }
         }
         CommandMenu("Note") {
-            item(.searchNotes) { $0.requestSearch() }
+            item(.searchNotes, withoutWindow: .search(nil)) { $0.requestSearch() }
             Divider()
             item(.togglePin, title: navigator?.openNote?.pinned == true ? "Unpin Note" : "Pin Note") { $0.togglePinOpenNote() }
             item(.copyMarkdown) { $0.copyOpenNote() }
@@ -148,11 +150,19 @@ struct InkwellCommands: Commands {
         [.indent, .outdent],
     ]
 
-    private func item(_ action: ShortcutAction, title: String? = nil, perform: @escaping (Navigator) -> Void) -> some View {
+    /// `withoutWindow` is what to do when no notes window is open (they were all closed on the
+    /// Mac): open one, which then carries it out.
+    private func item(_ action: ShortcutAction, title: String? = nil, withoutWindow: AppAction? = nil,
+                      perform: @escaping (Navigator) -> Void) -> some View {
         // Never disabled: menus are built before the first window reports in, and SwiftUI wouldn't
         // rebuild them when it does. The window is looked up when the command runs instead.
         Button(title ?? action.title) {
-            if let navigator { perform(navigator) }
+            if let navigator {
+                perform(navigator)
+            } else if let withoutWindow {
+                ActionRouter.shared.post(withoutWindow)
+                openWindow(id: "main")
+            }
         }
         .keyboardShortcut(bindings[action]?.keyboardShortcut)
     }

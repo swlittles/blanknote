@@ -180,17 +180,32 @@ public enum MarkdownEditing {
         let length = (marker as NSString).length
         let selected = ns.substring(with: selection)
 
+        // `*` also makes up `**`: text inside `**bold**` isn't italic, inside `***both***` it is.
+        // A run of stars is italic when its length is odd.
+        func isItalicRun(_ run: Int) -> Bool { marker != "*" || run % 2 == 1 }
+        func stars(from index: Int, step: Int) -> Int {
+            var count = 0
+            var position = index
+            while position >= 0, position < ns.length, ns.character(at: position) == 0x2A {
+                count += 1
+                position += step
+            }
+            return count
+        }
+
         // Already wrapped just outside the selection: unwrap.
         if selection.location >= length, NSMaxRange(selection) + length <= ns.length,
            ns.substring(with: NSRange(location: selection.location - length, length: length)) == marker,
-           ns.substring(with: NSRange(location: NSMaxRange(selection), length: length)) == marker {
+           ns.substring(with: NSRange(location: NSMaxRange(selection), length: length)) == marker,
+           isItalicRun(stars(from: selection.location - 1, step: -1)), isItalicRun(stars(from: NSMaxRange(selection), step: 1)) {
             return TextEdit(range: NSRange(location: selection.location - length, length: selection.length + 2 * length),
                             replacement: selected,
                             selection: NSRange(location: selection.location - length, length: selection.length))
         }
         // The selection includes the markers: unwrap.
         let selectedLength = (selected as NSString).length
-        if selectedLength >= 2 * length, selected.hasPrefix(marker), selected.hasSuffix(marker) {
+        if selectedLength >= 2 * length, selected.hasPrefix(marker), selected.hasSuffix(marker),
+           isItalicRun(selected.prefix { $0 == "*" }.count), isItalicRun(selected.reversed().prefix { $0 == "*" }.count) {
             let inner = (selected as NSString).substring(with: NSRange(location: length, length: selectedLength - 2 * length))
             return TextEdit(range: selection, replacement: inner,
                             selection: NSRange(location: selection.location, length: (inner as NSString).length))

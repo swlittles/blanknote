@@ -15,7 +15,13 @@ editor styles Markdown as you type, and the theme uses Claude Code's colours in 
 - Each device keeps a SQLite full-text index per profile in Caches (`Index/<profile id>.sqlite`). It's a cache:
   Settings › Rebuild Search Index recreates it from the files.
 - Changes from other devices (iCloud) or other apps (on the Mac) are picked up automatically.
-  When iCloud keeps two versions of a note, the other one is saved as a "(conflicted copy)" note.
+  When iCloud keeps two versions of a note, or another app changes a note while it has unsaved
+  edits here, the other version is saved as a "(conflicted copy)" note. Edits to a note that was
+  deleted elsewhere are saved as a new note.
+- Deleting a folder moves its notes to Recently Deleted. Any other files in it (images, notes still
+  downloading) move with the folder to `.trash/<name> (deleted folder)` rather than being erased.
+- Notes in other encodings (Windows Latin 1, UTF-16) are read correctly and saved back as UTF-8.
+  Symlinked notes are written through the link.
 
 ## Profiles
 

@@ -40,6 +40,23 @@ struct NoteFileTests {
         #expect(file.contents == "Body")
     }
 
+    @Test func changingAKeyKeepsCommentsAndBlankLines() {
+        var file = NoteFile(contents: "---\npinned: false\n# Obsidian settings below\n\naliases: [x]\n---\nBody")
+        file.frontMatter.set("pinned", "true")
+        #expect(file.contents == "---\npinned: true\n# Obsidian settings below\n\naliases: [x]\n---\nBody")
+        file.frontMatter.set("pinned", nil)
+        #expect(file.contents == "---\n# Obsidian settings below\n\naliases: [x]\n---\nBody")
+        #expect(file.frontMatter.list("aliases") == ["x"])
+    }
+
+    @Test func quotedValuesRoundTrip() {
+        for text in [#"Say "hi""#, #"back\slash"#, "a: b"] {
+            var front = FrontMatter()
+            front.set("trashed-from", FrontMatter.quoteIfNeeded(text))
+            #expect(front.value("trashed-from") == text)
+        }
+    }
+
     @Test func leadingRuleIsNotFrontMatter() {
         let contents = "---\nJust a rule, then text\n---\nMore"
         let file = NoteFile(contents: contents)
@@ -82,6 +99,12 @@ struct NoteTextTests {
             # Heading
             """
         #expect(NoteText.inlineTags(in: body) == ["work", "Work/api", "tag-two"])
+    }
+
+    @Test func fileNamesKeepJoinedEmoji() {
+        #expect(NoteText.fileName(for: "Family 👨‍👩‍👧‍👦 trip") == "Family 👨‍👩‍👧‍👦 trip")
+        #expect(NoteText.fileName(for: "می\u{200C}خواهم") == "می\u{200C}خواهم")
+        #expect(NoteText.fileName(for: "tab\there") == "tab-here")
     }
 
     @Test func fileNames() {

@@ -47,6 +47,7 @@ enum DebugSelfTests {
             try? await Task.sleep(for: .milliseconds(500))
             lines.append("reset: New Note \(menuItem("New Note")), Bold \(menuItem("Bold"))")
             lines.append("global hotkeys registered: \(GlobalHotkeys.shared.registeredCount), failed: \(GlobalHotkeys.shared.failures.map(\.rawValue))")
+            lines.append("notes windows: \(NSApp.windows.filter { $0.isVisible && GlobalHotkeys.isNotesWindow($0) }.count) of \(NSApp.windows.filter(\.isVisible).map { $0.identifier?.rawValue ?? "nil" })")
 
             // What the global hotkeys do, called the way the hotkey handler calls it.
             if let nav = ActionRouter.shared.activeNavigator {

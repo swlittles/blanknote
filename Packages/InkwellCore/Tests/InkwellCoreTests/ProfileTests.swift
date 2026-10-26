@@ -114,6 +114,33 @@ struct ProfileStoreTests {
         #expect(ProfileStore.placeholderID(for: "Laptop") == ProfileStore.placeholderID(for: "Laptop"))
     }
 
+    @Test func unreadableOrPendingSettingsAreNotOverwritten() async throws {
+        let store = await makeStore()
+        try write(#"{"accent":"coral","name":"Work"}"#, to: "Work/\(ProfileStore.metadataFile)")
+        try write("", to: "Laptop/.\(ProfileStore.metadataFile).icloud")
+        store.refresh()
+        #expect(store.profiles.map(\.name).sorted() == ["Laptop", "Personal", "Work"])
+        try store.reorder(store.profiles.map(\.id).reversed())
+        #expect(try String(contentsOf: container.appendingPathComponent("Work/\(ProfileStore.metadataFile)"), encoding: .utf8).contains("coral"))
+        #expect(!exists("Laptop/\(ProfileStore.metadataFile)"))
+        let laptop = try #require(store.profiles.first { $0.name == "Laptop" })
+        #expect(throws: ProfileStore.ProfileError.self) { try store.setTheme(ProfileTheme(accent: 0x3B7FC4), for: laptop.id) }
+    }
+
+    @Test func anInterruptedFirstMoveIsFinishedNextTime() async throws {
+        try write("Groceries", to: "Groceries.md")
+        try write("Plan", to: "Work/Plan.md")
+        // As if the app stopped after making the profile but before moving anything.
+        try write("Personal", to: ProfileStore.migrationMarker)
+        try write(##"{"id":"\##(UUID().uuidString)","name":"Personal","theme":{"accent":"#D97757"},"order":0,"created":"2026-01-01T00:00:00Z"}"##,
+                  to: "Personal/\(ProfileStore.metadataFile)")
+        let store = await makeStore()
+        #expect(store.profiles.map(\.name) == ["Personal"], "Work is a note folder, not a profile")
+        #expect(exists("Personal/Groceries.md"))
+        #expect(exists("Personal/Work/Plan.md"))
+        #expect(!exists(ProfileStore.migrationMarker))
+    }
+
     @Test func notesInAProfileStayInIt() async throws {
         let profiles = await makeStore()
         let work = try profiles.create(name: "Work", theme: .claude)

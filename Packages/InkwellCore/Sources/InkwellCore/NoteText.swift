@@ -60,7 +60,10 @@ public enum NoteText {
 
     /// A safe file name (without extension) for a note with this title.
     public static func fileName(for title: String) -> String {
-        let forbidden = CharacterSet(charactersIn: "/\\:*?\"<>|").union(.newlines).union(.controlCharacters)
+        // Only C0/C1 control characters: `.controlCharacters` also covers format characters such
+        // as the zero-width joiner inside emoji, and Persian's zero-width non-joiner.
+        let forbidden = CharacterSet(charactersIn: "/\\:*?\"<>|").union(.newlines)
+            .union(CharacterSet(charactersIn: "\u{0}"..."\u{1F}")).union(CharacterSet(charactersIn: "\u{7F}"..."\u{9F}"))
         var name = title.unicodeScalars.map { forbidden.contains($0) ? "-" : String($0) }.joined()
         name = name.trimmingCharacters(in: .whitespaces)
         while name.hasPrefix(".") { name.removeFirst() }

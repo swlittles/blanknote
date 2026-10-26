@@ -5,6 +5,9 @@ import Observation
 extension Notification.Name {
     /// Posted just before the active profile changes, so windows save the note they have open.
     static let inkwellWillSwitchProfile = Notification.Name("InkwellWillSwitchProfile")
+    /// Posted before a change that other windows' open notes must not race (a note or folder
+    /// moved, renamed or deleted), so every window saves what it has first.
+    static let inkwellSaveEditors = Notification.Name("InkwellSaveEditors")
 }
 
 /// The app's profiles and the open profile's notes. Every window shows the active profile;
@@ -98,7 +101,8 @@ final class AppModel {
 
     func rename(_ id: UUID, to name: String) {
         guard let profile = profiles.profiles.first(where: { $0.id == id }), profile.name != name.trimmingCharacters(in: .whitespaces) else { return }
-        NotificationCenter.default.post(name: .inkwellWillSwitchProfile, object: nil)
+        // The windows stay on the profile (only its folder moves), so they save rather than close.
+        NotificationCenter.default.post(name: .inkwellSaveEditors, object: nil)
         do {
             try profiles.rename(id, to: name)
             openActive()
@@ -130,7 +134,13 @@ final class AppModel {
             let name = profiles.profiles.first { $0.id == id }?.name ?? ""
             try profiles.delete(id)
             openActive()
-            notice = "Deleted the “\(name)” profile"
+            let message = "Deleted the “\(name)” profile"
+            if wasActive {
+                // Shown by the windows that open on the next profile.
+                notice = message
+            } else {
+                ActionRouter.shared.activeNavigator?.toasts.show(message, systemImage: "person.crop.circle")
+            }
         } catch {
             lastError = error.localizedDescription
         }

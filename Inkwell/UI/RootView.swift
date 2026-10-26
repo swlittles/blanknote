@@ -82,7 +82,8 @@ struct RootView: View {
                 nav.toasts.show(message, systemImage: "exclamationmark.triangle.fill", style: .error)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .inkwellWillSwitchProfile)) { _ in nav.editor.flush() }
+        .onReceive(NotificationCenter.default.publisher(for: .inkwellWillSwitchProfile)) { _ in nav.editor.close() }
+        .onReceive(NotificationCenter.default.publisher(for: .inkwellSaveEditors)) { _ in nav.editor.flush() }
         .onChange(of: store.notices) { showStoreNotices() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
@@ -100,9 +101,10 @@ struct RootView: View {
             if state == .key { router.activeNavigator = nav }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-            nav.editor.flush()
+            nav.editor.close()
         }
-        .onDisappear { nav.editor.flush() }
+        // The window closed (or shows another profile now): save, and drop a note left empty.
+        .onDisappear { nav.editor.close() }
         #endif
     }
 
@@ -124,8 +126,11 @@ struct RootView: View {
         for notice in store.notices {
             switch notice.kind {
             case .keptBothVersions(let title):
-                nav.toasts.show("“\(title)” was edited on two devices at once. Both versions were kept.",
+                nav.toasts.show("“\(title)” was changed somewhere else at the same time. Both versions were kept.",
                                 systemImage: "doc.on.doc")
+            case .savedAsNewNote(let title):
+                nav.toasts.show("“\(title)” was moved or deleted somewhere else. Your changes were saved as a new note.",
+                                systemImage: "doc.badge.plus")
             }
         }
         store.clearNotices()

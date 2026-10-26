@@ -100,18 +100,23 @@ final class GlobalHotkeys {
         }
     }
 
+    /// A notes window (Settings doesn't count: it can't take a new note).
+    static func isNotesWindow(_ window: NSWindow) -> Bool {
+        window.canBecomeMain && window.identifier?.rawValue.hasPrefix("main") == true
+    }
+
     private var hasVisibleWindow: Bool {
-        NSApp.windows.contains { $0.isVisible && $0.canBecomeMain }
+        NSApp.windows.contains { $0.isVisible && Self.isNotesWindow($0) }
     }
 
     private func bringForward() {
         NSApp.unhide(nil)
         NSApp.activate()
-        if let minimized = NSApp.windows.first(where: { $0.isMiniaturized && $0.canBecomeMain }), !hasVisibleWindow {
+        if let minimized = NSApp.windows.first(where: { $0.isMiniaturized && Self.isNotesWindow($0) }), !hasVisibleWindow {
             minimized.deminiaturize(nil)
         }
         if !hasVisibleWindow { openMainWindow?() }
-        NSApp.windows.first { $0.isVisible && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+        NSApp.windows.first { $0.isVisible && Self.isNotesWindow($0) }?.makeKeyAndOrderFront(nil)
     }
 
     private static func carbonModifiers(_ modifiers: KeyCombo.Modifiers) -> UInt32 {

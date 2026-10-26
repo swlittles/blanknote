@@ -55,6 +55,11 @@ struct ShortcutsSettingsView: View {
     }
 }
 
+extension Notification.Name {
+    /// Posted when a recorder starts, with its action's raw value, so any other one stops.
+    static let shortcutRecorderStarted = Notification.Name("ShortcutRecorderStarted")
+}
+
 /// Shows an action's shortcut; click it, then press keys to change it.
 struct ShortcutRecorder: View {
     let action: ShortcutAction
@@ -63,6 +68,7 @@ struct ShortcutRecorder: View {
     @State private var message: String?
     #if os(macOS)
     @State private var monitor: Any?
+    @State private var resignObserver: (any NSObjectProtocol)?
     #endif
 
     var body: some View {
@@ -103,6 +109,9 @@ struct ShortcutRecorder: View {
         .background(KeyCapture(isActive: recording) { handle($0) })
         #endif
         .onDisappear { stopRecording() }
+        .onReceive(NotificationCenter.default.publisher(for: .shortcutRecorderStarted)) { note in
+            if note.object as? String != action.rawValue { stopRecording() }
+        }
     }
 
     private var label: String {
@@ -122,13 +131,22 @@ struct ShortcutRecorder: View {
     }
 
     private func startRecording() {
+        // One recorder at a time: the others stop first, so they don't clear `isRecording` after.
+        NotificationCenter.default.post(name: .shortcutRecorderStarted, object: action.rawValue)
         recording = true
         message = nil
         shortcuts.isRecording = true
         #if os(macOS)
+        let window = NSApp.keyWindow
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Only keys typed in Settings: typing in a note meanwhile types as usual.
+            guard window == nil || event.window === window else { return event }
             handle(KeyCombo(event: event))
             return nil
+        }
+        // Moving to another window ends recording.
+        resignObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { _ in
+            MainActor.assumeIsolated { stopRecording() }
         }
         #endif
     }
@@ -140,6 +158,8 @@ struct ShortcutRecorder: View {
         #if os(macOS)
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        resignObserver = nil
         #endif
     }
 

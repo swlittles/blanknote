@@ -21,6 +21,13 @@ public struct NoteFileSystem: Sendable {
         path.isEmpty ? root : root.appendingPathComponent(path)
     }
 
+    /// Folders the scan skips, so notes can't be made in them: hidden ones, `attachments` at the
+    /// top level, and app bundles.
+    public static func isHiddenFolder(_ path: String) -> Bool {
+        let name = (path as NSString).lastPathComponent
+        return name.hasPrefix(".") || path == attachmentsFolder || name.hasSuffix(".app")
+    }
+
     public func exists(_ path: String) -> Bool {
         FileManager.default.fileExists(atPath: url(for: path).path)
     }
@@ -44,13 +51,18 @@ public struct NoteFileSystem: Sendable {
         guard let enumerator = FileManager.default.enumerator(atPath: root.path) else { return result }
         while let path = enumerator.nextObject() as? String {
             let name = (path as NSString).lastPathComponent
-            let attributes = enumerator.fileAttributes ?? [:]
+            var attributes = enumerator.fileAttributes ?? [:]
+            if attributes[.type] as? FileAttributeType == .typeSymbolicLink,
+               Self.noteExtensions.contains((name as NSString).pathExtension.lowercased()) {
+                // A linked note: its dates are the target's.
+                attributes = (try? FileManager.default.attributesOfItem(atPath: url(for: path).resolvingSymlinksInPath().path)) ?? attributes
+            }
             let isDirectory = attributes[.type] as? FileAttributeType == .typeDirectory
             let inTrash = path.hasPrefix(Self.trashFolder + "/")
 
             if isDirectory {
                 if path == Self.trashFolder { continue }
-                if name.hasPrefix(".") || path == Self.attachmentsFolder || inTrash || name.hasSuffix(".app") {
+                if Self.isHiddenFolder(path) || inTrash {
                     enumerator.skipDescendants()
                     continue
                 }
@@ -74,25 +86,39 @@ public struct NoteFileSystem: Sendable {
     public func read(_ path: String) throws -> String {
         var text = ""
         try coordinate(reading: url(for: path)) { url in
-            let data = try Data(contentsOf: url)
-            text = String(decoding: data, as: UTF8.self)
+            text = Self.decode(try Data(contentsOf: url))
         }
         return text
+    }
+
+    /// UTF-8 (without its byte order mark), else UTF-16 with a byte order mark, else Windows Latin 1,
+    /// so a note from another editor keeps its accents when it's saved again (as UTF-8).
+    static func decode(_ data: Data) -> String {
+        if data.starts(with: [0xEF, 0xBB, 0xBF]), let text = String(data: data.dropFirst(3), encoding: .utf8) { return text }
+        if let text = String(data: data, encoding: .utf8) { return text }
+        if data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]), let text = String(data: data, encoding: .utf16) {
+            return text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
+        }
+        return String(data: data, encoding: .windowsCP1252) ?? String(data: data, encoding: .isoLatin1) ?? String(decoding: data, as: UTF8.self)
     }
 
     /// Writes the file (creating its folder if needed) and returns its new modification date.
     @discardableResult
     public func write(_ contents: String, to path: String) throws -> Date {
-        let target = url(for: path)
+        // Write through a symlink to the file it points at, rather than replacing the link.
+        let target = url(for: path).resolvingSymlinksInPath()
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let created = (try? FileManager.default.attributesOfItem(atPath: target.path))?[.creationDate] as? Date
         try coordinate(writing: target, options: .forReplacing) { url in
             try Data(contents.utf8).write(to: url, options: .atomic)
+            // An atomic write is a new file: keep the note's creation date.
+            if let created { try? FileManager.default.setAttributes([.creationDate: created], ofItemAtPath: url.path) }
         }
         return modificationDate(path) ?? Date()
     }
 
     public func modificationDate(_ path: String) -> Date? {
-        try? FileManager.default.attributesOfItem(atPath: url(for: path).path)[.modificationDate] as? Date
+        try? FileManager.default.attributesOfItem(atPath: url(for: path).resolvingSymlinksInPath().path)[.modificationDate] as? Date
     }
 
     public func move(_ from: String, to destination: String) throws {
@@ -121,6 +147,15 @@ public struct NoteFileSystem: Sendable {
             }
         }
         if let error = coordinatorError ?? moveError { throw error }
+    }
+
+    /// Whether the folder holds any files at all (Finder's `.DS_Store` aside), however deep.
+    public func containsFiles(_ path: String) -> Bool {
+        guard let enumerator = FileManager.default.enumerator(at: url(for: path), includingPropertiesForKeys: [.isDirectoryKey]) else { return false }
+        for case let item as URL in enumerator where item.lastPathComponent != ".DS_Store" {
+            if (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true { return true }
+        }
+        return false
     }
 
     public func createFolder(_ path: String) throws {
@@ -156,14 +191,23 @@ public struct NoteFileSystem: Sendable {
         let folder = (path as NSString).deletingLastPathComponent
         let name = ((path as NSString).lastPathComponent as NSString).deletingPathExtension
         var copies: [String] = []
+        var savedAll = true
         for version in versions {
-            if let data = try? Data(contentsOf: version.url) {
-                let copy = uniquePath(in: folder, name: "\(name) (conflicted copy)")
-                if (try? write(String(decoding: data, as: UTF8.self), to: copy)) != nil { copies.append(copy) }
+            // Only a version that was saved as a copy is marked resolved: one that couldn't be is
+            // left for the next scan to try again, rather than thrown away.
+            guard let data = try? Data(contentsOf: version.url) else {
+                savedAll = false
+                continue
             }
+            let copy = uniquePath(in: folder, name: "\(name) (conflicted copy)")
+            guard (try? write(Self.decode(data), to: copy)) != nil else {
+                savedAll = false
+                continue
+            }
+            copies.append(copy)
             version.isResolved = true
         }
-        try? NSFileVersion.removeOtherVersionsOfItem(at: fileURL)
+        if savedAll { try? NSFileVersion.removeOtherVersionsOfItem(at: fileURL) }
         return copies
     }
 

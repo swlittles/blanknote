@@ -129,6 +129,12 @@ struct MarkdownEditingTests {
         #expect(format(.bold, "a «word» b") == "a **«word»** b")
         #expect(format(.bold, "a **«word»** b") == "a «word» b")
         #expect(format(.bold, "a «**word**» b") == "a «word» b")
+        #expect(format(.italic, "a «word» b") == "a *«word»* b")
+        #expect(format(.italic, "a *«word»* b") == "a «word» b")
+        // Italic on bold text adds italic rather than turning the bold into italic.
+        #expect(format(.italic, "a **«bold»** b") == "a ***«bold»*** b")
+        #expect(format(.italic, "a ***«both»*** b") == "a **«both»** b")
+        #expect(format(.italic, "a «**bold**» b") == "a *«**bold**»* b")
         #expect(format(.inlineCode, "x|") == "x`|`")
         #expect(format(.link, "«site»") == "[site](«url»)")
         #expect(format(.link, "«https://a.b»") == "[|](https://a.b)")

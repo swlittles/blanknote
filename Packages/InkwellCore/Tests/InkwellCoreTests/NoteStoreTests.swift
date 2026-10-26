@@ -157,4 +157,169 @@ struct NoteStoreTests {
         #expect(editor.text == "Meeting notes\nchanged elsewhere")
         #expect(editor.revision == revision + 1)
     }
+
+    @Test func onlyTrulyEmptyNotesAreDiscarded() async throws {
+        let store = await makeStore()
+        let editor = EditorModel(store: store)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "---\ntags: [todo]\n---\n".write(to: root.appendingPathComponent("Template.md"), atomically: true, encoding: .utf8)
+        await store.reconcile()
+        editor.open("Template.md")
+        editor.open(nil)
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Template.md").path), "front matter isn't nothing")
+
+        let empty = try store.createNote(in: "")
+        editor.open(empty)
+        editor.close()
+        #expect(store.summary(for: empty) == nil)
+    }
+
+    @Test func editsToANoteDeletedElsewhereAreKept() async throws {
+        let store = await makeStore()
+        let editor = EditorModel(store: store)
+        editor.saveDelay = .seconds(60)
+        let path = try store.createNote(in: "", body: "Draft\nfirst")
+        editor.open(path)
+        editor.update(text: "Draft\nfirst\nsecond")
+        // Another app deletes the file before the autosave.
+        try FileManager.default.removeItem(at: root.appendingPathComponent(path))
+        await store.reconcile()
+        editor.flush()
+        #expect(try contents(editor.path ?? "") == "Draft\nfirst\nsecond")
+        #expect(store.notices.map(\.kind) == [.savedAsNewNote(title: "Draft")])
+    }
+
+    @Test func editsFollowANoteMovedByAnotherWindow() async throws {
+        let store = await makeStore()
+        let editor = EditorModel(store: store)
+        editor.saveDelay = .seconds(60)
+        var followed: String?
+        editor.onPathChange = { followed = $0 }
+        let path = try store.createNote(in: "", body: "Plan\nv1")
+        editor.open(path)
+        editor.update(text: "Plan\nv2")
+        try store.createFolder(named: "Work")
+        let moved = try store.moveNote(path, to: "Work")
+        editor.flush()
+        #expect(followed == moved)
+        #expect(try contents(moved) == "Plan\nv2")
+        #expect(!store.fileExists(path))
+    }
+
+    @Test func outsideEditsWhileTypingAreKeptAsACopy() async throws {
+        let store = await makeStore()
+        let editor = EditorModel(store: store)
+        editor.saveDelay = .seconds(60)
+        let path = try store.createNote(in: "", body: "Notes\nmine")
+        editor.open(path)
+        // Pinning (front matter only) isn't a conflict.
+        try store.setPinned(true, for: path)
+        editor.update(text: "Notes\nmine, edited")
+        editor.flush()
+        #expect(store.notices.isEmpty)
+        #expect(try contents(path) == "---\npinned: true\n---\nNotes\nmine, edited")
+
+        // Another app changes the text while there are unsaved edits here.
+        editor.update(text: "Notes\nmine, edited again")
+        try "---\npinned: true\n---\nNotes\ntheirs".write(to: root.appendingPathComponent(path), atomically: true, encoding: .utf8)
+        editor.flush()
+        #expect(try contents(path) == "---\npinned: true\n---\nNotes\nmine, edited again")
+        #expect(try contents("Notes (conflicted copy).md") == "---\npinned: true\n---\nNotes\ntheirs")
+        #expect(store.notices.map(\.kind) == [.keptBothVersions(title: "Notes")])
+    }
+
+    @Test func pastedFrontMatterIsNotDuplicated() async throws {
+        let store = await makeStore()
+        let path = try store.createNote(in: "")
+        let body = "---\nauthor: me\n---\nHello\nworld"
+        let saved = try store.saveNote(path, body: body)
+        #expect(saved == "Hello.md")
+        #expect(try store.saveNote(saved, body: body) == saved)
+        #expect(try contents(saved) == body)
+    }
+
+    @Test func otherEncodingsAndLinksSurviveSaving() async throws {
+        let store = await makeStore()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        // Windows Latin 1, from another editor.
+        try Data([0x43, 0x61, 0x66, 0xE9, 0x0A, 0x72, 0xE9, 0x73, 0x75, 0x6D, 0xE9]).write(to: root.appendingPathComponent("Cafe.md"))
+        // A note linked in from elsewhere, with an old creation date.
+        let outside = root.deletingLastPathComponent().appendingPathComponent("Linked target.md")
+        try "Linked\nv1".write(to: outside, atomically: true, encoding: .utf8)
+        let created = Date(timeIntervalSince1970: 1_000_000_000)
+        try FileManager.default.setAttributes([.creationDate: created], ofItemAtPath: outside.path)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("Linked.md"), withDestinationURL: outside)
+        await store.reconcile()
+
+        #expect(store.summary(for: "Cafe.md")?.title == "Café")
+        let trashed = try store.trashNote("Cafe.md")
+        #expect(try store.readNote(trashed).body == "Café\nrésumé")
+
+        #expect(try store.saveNote("Linked.md", body: "Linked\nv2") == "Linked.md")
+        #expect(try String(contentsOf: outside, encoding: .utf8) == "Linked\nv2")
+        #expect((try FileManager.default.attributesOfItem(atPath: root.appendingPathComponent("Linked.md").path)[.type] as? FileAttributeType) == .typeSymbolicLink)
+        #expect((try FileManager.default.attributesOfItem(atPath: outside.path)[.creationDate] as? Date) == created)
+    }
+
+    @Test func deletingAFolderKeepsFilesThatAreNotNotes() async throws {
+        let store = await makeStore()
+        let folder = try store.createFolder(named: "Work")
+        let note = try store.createNote(in: folder, body: "Plan")
+        try "pixels".write(to: root.appendingPathComponent("Work/pic.png"), atomically: true, encoding: .utf8)
+        let trashed = try store.deleteFolder(folder)
+        #expect(trashed.count == 1 && store.summary(for: note) == nil)
+        #expect(!store.folders.contains(folder))
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(".trash/Work (deleted folder)/pic.png").path))
+
+        // An empty folder is simply removed.
+        let empty = try store.createFolder(named: "Empty")
+        try store.deleteFolder(empty)
+        #expect(!store.fileExists(empty))
+    }
+
+    @Test func reservedFolderNamesAreAvoided() async throws {
+        let store = await makeStore()
+        #expect(try store.createFolder(named: "attachments") == "attachments 2")
+        let folder = try store.createFolder(named: "Pictures")
+        #expect(try await store.renameFolder(folder, to: "attachments") == "attachments 3")
+        await store.reconcile()
+        #expect(store.folders.allSatisfy { $0 != "attachments" })
+    }
+
+    @Test func renamingAFolderUpdatesWhereDeletedNotesGoBack() async throws {
+        let store = await makeStore()
+        let folder = try store.createFolder(named: "Old")
+        let trashed = try store.trashNote(try store.createNote(in: folder, body: "Gone"))
+        let renamed = try await store.renameFolder(folder, to: "New")
+        #expect(store.currentFolder(for: folder) == renamed)
+        #expect(try store.restoreNote(trashed) == "New/Gone.md")
+    }
+
+    @Test func changesDuringAScanAreKept() async throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for number in 0..<400 {
+            try "Note \(number)\n\(String(repeating: "text ", count: 200))".write(to: root.appendingPathComponent("Note \(number).md"), atomically: true, encoding: .utf8)
+        }
+        let store = await makeStore()
+        try FileManager.default.removeItem(at: indexURL)
+        let scan = Task { await store.reconcile(full: true) }
+        await Task.yield()
+        let note = try store.createNote(in: "", body: "Made during the scan")
+        let folder = try store.createFolder(named: "Also during")
+        await scan.value
+        #expect(store.summary(for: note) != nil)
+        #expect(store.folders.contains(folder))
+        #expect(store.notes.count == 401)
+    }
+
+    @Test func aDamagedIndexIsRebuilt() async throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "Kept\nnote".write(to: root.appendingPathComponent("Kept.md"), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: indexURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 0x5A, count: 4096).write(to: indexURL)
+        let store = await makeStore()
+        #expect(store.notes.map(\.path) == ["Kept.md"])
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await store.search("note") == ["Kept.md"])
+    }
 }

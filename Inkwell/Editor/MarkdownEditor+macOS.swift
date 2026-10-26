@@ -42,6 +42,10 @@ struct MarkdownEditor: NSViewRepresentable {
         func attach(_ view: InkTextView) {
             textView = view
             view.delegate = self
+            if let clip = view.enclosingScrollView?.contentView {
+                clip.postsBoundsChangedNotifications = true
+                NotificationCenter.default.addObserver(self, selector: #selector(scrolled(_:)), name: NSView.boundsDidChangeNotification, object: clip)
+            }
             view.setAccessibilityIdentifier("editor")
             view.textStorage?.delegate = self
             view.textLayoutManager?.delegate = self
@@ -80,11 +84,26 @@ struct MarkdownEditor: NSViewRepresentable {
                 storage.endEditing()
             }
             if model.revision != revision {
+                // A reload of the note on screen keeps the cursor and scroll position; so does a
+                // new view of the note that was open (the window redrawn in a new theme).
+                let isNewView = revision == -1
                 revision = model.revision
+                let keepsPlace = model.revisionIsReload && !isNewView
+                let selection = keepsPlace ? textView.selectedRange() : model.selection
+                let offset = keepsPlace ? Double(textView.enclosingScrollView?.contentView.bounds.origin.y ?? 0) : model.scrollOffset
                 storage.setAttributedString(NSAttributedString(string: model.text, attributes: styler.baseAttributes))
-                textView.setSelectedRange(NSRange(location: 0, length: 0))
-                textView.scroll(.zero)
+                textView.setSelectedRange(Self.clamp(selection, to: storage.length))
                 textView.undoManager?.removeAllActions()
+                if offset > 0 {
+                    DispatchQueue.main.async { [weak textView] in
+                        guard let textView, let clip = textView.enclosingScrollView?.contentView else { return }
+                        if let layout = textView.textLayoutManager { layout.ensureLayout(for: layout.documentRange) }
+                        clip.scroll(to: NSPoint(x: 0, y: offset))
+                        textView.enclosingScrollView?.reflectScrolledClipView(clip)
+                    }
+                } else {
+                    textView.scroll(.zero)
+                }
             }
             textView.isEditable = !model.isReadOnly
             if model.wantsFocus {
@@ -108,11 +127,26 @@ struct MarkdownEditor: NSViewRepresentable {
             CodeBlockLayoutFragment.fragment(for: textElement)
         }
 
+        static func clamp(_ range: NSRange, to length: Int) -> NSRange {
+            let location = min(range.location, length)
+            return NSRange(location: location, length: min(range.length, length - location))
+        }
+
+        @objc private func scrolled(_ notification: Notification) {
+            guard let clip = notification.object as? NSClipView else { return }
+            model.scrollOffset = Double(clip.bounds.origin.y)
+        }
+
         // MARK: Typing
 
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
             model.update(text: textView.string)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView else { return }
+            model.selection = textView.selectedRange()
         }
 
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {

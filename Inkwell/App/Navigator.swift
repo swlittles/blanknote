@@ -38,6 +38,8 @@ final class Navigator {
     }
     var searchText = ""
     private(set) var searchResults: [String]?
+    /// Bumped when the notes change during a search, so the results are looked up again.
+    private(set) var searchRefresh = 0
     /// iPhone (or a narrow iPad window): after deleting a note, go back to the list rather than
     /// opening the next one.
     var isCompact = false
@@ -116,7 +118,11 @@ final class Navigator {
     func newNote(body: String = "") {
         var folder = ""
         if case .folder(let path)? = sidebar { folder = path }
-        if sidebar == .trash { sidebar = .all }
+        // A new note isn't in Recently Deleted, and has no tags yet: show it where it'll appear.
+        switch sidebar {
+        case .trash?, .tag?: sidebar = .all
+        default: break
+        }
         searchText = ""
         searchResults = nil
         do {
@@ -131,9 +137,16 @@ final class Navigator {
     /// Saves the note if it's open, and returns its path afterwards: saving renames the file
     /// when the title changed.
     private func savedPath(_ path: String) -> String {
+        // Every window saves its open note, in case it's this one (or the one this moves over).
+        saveAllWindows()
+        let path = store.summary(for: path) == nil ? store.currentPath(for: path) ?? path : path
         guard editor.path == path else { return path }
         editor.flush()
         return editor.path ?? path
+    }
+
+    private func saveAllWindows() {
+        NotificationCenter.default.post(name: .inkwellSaveEditors, object: nil)
     }
 
     func togglePin(_ path: String) {
@@ -188,6 +201,7 @@ final class Navigator {
     }
 
     func emptyTrash() {
+        saveAllWindows()
         if let path = editor.path, store.summary(for: path)?.isTrashed == true { selection = nil }
         let count = store.notes.count(where: \.isTrashed)
         do {
@@ -252,6 +266,13 @@ final class Navigator {
         toasts.show("Copied as Markdown", systemImage: "doc.on.doc", style: .success)
     }
 
+    /// The open note's file, after saving it.
+    func savedOpenNoteURL() -> URL? {
+        editor.flush()
+        guard let path = editor.path, let root = store.rootURL else { return nil }
+        return root.appendingPathComponent(path)
+    }
+
     #if os(macOS)
     func showOpenNoteInFinder() {
         editor.flush()
@@ -309,7 +330,7 @@ final class Navigator {
     }
 
     func renameFolder(_ path: String, to name: String) async {
-        editor.flush()
+        saveAllWindows()
         do {
             let newPath = try await store.renameFolder(path, to: name)
             func moved(_ item: String) -> String? {
@@ -326,7 +347,7 @@ final class Navigator {
     }
 
     func deleteFolder(_ path: String) {
-        editor.flush()
+        saveAllWindows()
         if let open = editor.path, open.hasPrefix(path + "/") { selection = nil }
         if case .folder(let current)? = sidebar, current == path || current.hasPrefix(path + "/") { sidebar = .all }
         do {
@@ -357,13 +378,27 @@ final class Navigator {
         }
     }
 
-    /// Keeps the selection valid after the notes changed on disk.
+    /// Keeps the selection valid after the notes changed: follows a note or folder another window
+    /// moved or renamed, and lets go of one that's gone.
     func notesChanged() {
-        if let selection, store.summary(for: selection) == nil, editor.path == selection {
-            self.selection = nil
+        if let open = editor.path, store.summary(for: open) == nil {
+            if let moved = store.currentPath(for: open), !NoteStore.isTrashed(moved), store.summary(for: moved) != nil {
+                editor.follow(movedTo: moved)
+                if selection == open { selection = moved }
+            } else if selection == open {
+                selection = nil
+            }
         }
         if case .folder(let folder)? = sidebar, !store.folders.contains(folder) {
-            sidebar = .all
+            if let renamed = store.currentFolder(for: folder), store.folders.contains(renamed) {
+                sidebar = .folder(renamed)
+            } else {
+                sidebar = .all
+            }
+        }
+        if let results = searchResults {
+            searchResults = results.map { store.summary(for: $0) == nil ? store.currentPath(for: $0) ?? $0 : $0 }
+            searchRefresh += 1
         }
     }
 

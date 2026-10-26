@@ -36,7 +36,7 @@ struct NoteListView: View {
         .searchable(text: $nav.searchText, prompt: "Search all notes")
         .searchFocused($searchFocused)
         .onChange(of: nav.searchRequest) { searchFocused = true }
-        .task(id: nav.searchText) { await nav.runSearch() }
+        .task(id: "\(nav.searchText)\u{0}\(nav.searchRefresh)") { await nav.runSearch() }
         #if os(macOS)
         .onDeleteCommand {
             if let selection = nav.selection { nav.delete(selection) }
