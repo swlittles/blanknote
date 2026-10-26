@@ -47,6 +47,9 @@ public final class NoteStore {
     public private(set) var location: Location = .local
     public private(set) var rootURL: URL?
     public private(set) var isReady = false
+    /// Bumped each time the search index finishes an update. Notes appear in `notes` before the index
+    /// has them, so a search shown at that moment looks again when this changes.
+    public private(set) var indexRevision = 0
     public var lastError: String?
     /// Things worth telling the user that happened without them doing anything. The app shows
     /// them and calls `clearNotices()`.
@@ -235,6 +238,7 @@ public final class NoteStore {
                 await index.apply(upserts: outcome.upserts, removals: outcome.removals)
                 // A rebuild may have emptied the index after notes saved meanwhile were indexed.
                 if forceFull { await reindex(paths: changedPaths) }
+                indexRevision += 1
             }
             forceFull = false
         } while reconcileAgain
@@ -451,7 +455,10 @@ public final class NoteStore {
         changedPaths.insert(path)
         notes.removeAll { $0.path == path }
         let index = self.index
-        Task { await index?.apply(upserts: [], removals: [path]) }
+        Task {
+            await index?.apply(upserts: [], removals: [path])
+            indexRevision += 1
+        }
     }
 
     public func emptyTrash() throws {
@@ -599,7 +606,10 @@ public final class NoteStore {
         notes.append(summary)
         let removals = oldPath.flatMap { $0 == path ? nil : [$0] } ?? []
         let index = self.index
-        Task { await index?.apply(upserts: [(summary, file.body)], removals: removals) }
+        Task {
+            await index?.apply(upserts: [(summary, file.body)], removals: removals)
+            indexRevision += 1
+        }
     }
 
     private func noteMoved(_ oldPath: String, to newPath: String) {
@@ -624,6 +634,7 @@ public final class NoteStore {
             }
         }.value
         await index.apply(upserts: upserts, removals: removingOld ? renamed.map(\.old) : [])
+        indexRevision += 1
     }
 
     public static func isTrashed(_ path: String) -> Bool {

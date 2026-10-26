@@ -75,6 +75,7 @@ struct RootView: View {
         .onChange(of: router.requestCount) { handlePendingAction() }
         .onChange(of: store.notes) { nav.notesChanged() }
         .onChange(of: store.folders) { nav.notesChanged() }
+        .onChange(of: store.indexRevision) { nav.indexChanged() }
         .onChange(of: store.lastError) { showStoreError() }
         .onChange(of: app.lastError) {
             if let message = app.lastError {

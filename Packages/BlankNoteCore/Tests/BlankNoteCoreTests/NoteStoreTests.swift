@@ -49,6 +49,22 @@ struct NoteStoreTests {
         #expect(await reopened.search("more") == ["Shopping list 2.md"])
     }
 
+    @Test func indexRevisionMovesOnceNotesAreSearchable() async throws {
+        // Notes copied in from elsewhere (an import, iCloud) are listed first and indexed after.
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "# Deployment Instructions\nmerge the tag".write(to: root.appendingPathComponent("Deployment Instructions.md"), atomically: true, encoding: .utf8)
+        let store = await makeStore()
+        #expect(store.notes.map(\.path) == ["Deployment Instructions.md"])
+        #expect(store.indexRevision > 0)
+        #expect(await store.search("deploy") == ["Deployment Instructions.md"])
+
+        let before = store.indexRevision
+        _ = try store.createNote(in: "", body: "Release checklist")
+        for _ in 0..<50 where store.indexRevision == before { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(store.indexRevision > before)
+        #expect(await store.search("release") == ["Release checklist.md"])
+    }
+
     @Test func pinningWritesFrontMatterAndKeepsBody() async throws {
         let store = await makeStore()
         let path = try store.createNote(in: "", body: "Pinned note\ntext")

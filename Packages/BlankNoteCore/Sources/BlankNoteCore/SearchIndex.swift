@@ -7,8 +7,8 @@ import SQLite3
 /// cached summaries straight away, then re-reads only the files whose modification date changed.
 public actor SearchIndex {
     /// Bump when the tables or how summaries are derived (titles, tags) change: the cache is rebuilt.
-    /// 2: hex colours are no longer tags.
-    private static let schemaVersion: Int32 = 2
+    /// 2: hex colours are no longer tags. 3: prefix matching without the Porter stemmer.
+    private static let schemaVersion: Int32 = 3
     private let db: OpaquePointer
 
     /// `rootIdentity` names the notes folder this cache describes. If it changes (say the notes
@@ -30,7 +30,7 @@ public actor SearchIndex {
                 CREATE TABLE notes(path TEXT PRIMARY KEY, title TEXT, preview TEXT, tags TEXT,
                                    pinned INTEGER, created REAL, modified REAL);
                 CREATE VIRTUAL TABLE fts USING fts5(path UNINDEXED, title, body,
-                                                    tokenize='porter unicode61 remove_diacritics 2');
+                                                    tokenize='unicode61 remove_diacritics 2');
                 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
                 PRAGMA user_version=\(Self.schemaVersion);
                 """)

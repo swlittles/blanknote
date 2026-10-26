@@ -380,6 +380,11 @@ final class Navigator {
 
     /// Keeps the selection valid after the notes changed: follows a note or folder another window
     /// moved or renamed, and lets go of one that's gone.
+    /// The search index caught up (notes are listed before they're indexed): look up an open search again.
+    func indexChanged() {
+        if searchResults != nil { searchRefresh += 1 }
+    }
+
     func notesChanged() {
         if let open = editor.path, store.summary(for: open) == nil {
             if let moved = store.currentPath(for: open), !NoteStore.isTrashed(moved), store.summary(for: moved) != nil {
