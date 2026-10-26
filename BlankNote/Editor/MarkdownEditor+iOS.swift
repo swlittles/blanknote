@@ -183,32 +183,121 @@ struct MarkdownEditor: UIViewRepresentable {
 
         // MARK: Keyboard bar
 
-        private func makeKeyboardBar() -> UIToolbar {
-            let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 390, height: 44))
-            bar.tintColor = Palette.accent
-            func item(_ symbol: String, _ label: String, _ action: FormatAction) -> UIBarButtonItem {
-                let item = UIBarButtonItem(image: UIImage(systemName: symbol), primaryAction: UIAction { [weak self] _ in self?.perform(action) })
-                item.accessibilityLabel = label
-                return item
-            }
-            let done = UIBarButtonItem(image: UIImage(systemName: "keyboard.chevron.compact.down"), primaryAction: UIAction { [weak self] _ in
-                self?.textView?.resignFirstResponder()
-            })
-            done.accessibilityLabel = "Hide Keyboard"
-            bar.items = [
-                item("checklist", "Checklist", .checklist),
-                item("list.bullet", "Bulleted List", .bulletList),
-                item("number", "Heading", .heading),
-                item("bold", "Bold", .bold),
-                item("italic", "Italic", .italic),
-                item("chevron.left.forwardslash.chevron.right", "Code", .inlineCode),
-                item("decrease.indent", "Outdent", .outdent),
-                item("increase.indent", "Indent", .indent),
-                .flexibleSpace(),
-                done,
-            ]
-            return bar
+        private func makeKeyboardBar() -> KeyboardBar {
+            KeyboardBar(
+                items: [
+                    .init(symbol: "checklist", label: "Checklist") { [weak self] in self?.perform(.checklist) },
+                    .init(symbol: "list.bullet", label: "Bulleted List") { [weak self] in self?.perform(.bulletList) },
+                    .init(symbol: "number", label: "Heading") { [weak self] in self?.perform(.heading) },
+                    .init(symbol: "bold", label: "Bold") { [weak self] in self?.perform(.bold) },
+                    .init(symbol: "italic", label: "Italic") { [weak self] in self?.perform(.italic) },
+                    .init(symbol: "chevron.left.forwardslash.chevron.right", label: "Code") { [weak self] in self?.perform(.inlineCode) },
+                    .init(symbol: "decrease.indent", label: "Outdent") { [weak self] in self?.perform(.outdent) },
+                    .init(symbol: "increase.indent", label: "Indent") { [weak self] in self?.perform(.indent) },
+                ],
+                done: .init(symbol: "keyboard.chevron.compact.down", label: "Hide Keyboard") { [weak self] in
+                    self?.textView?.resignFirstResponder()
+                })
         }
+    }
+}
+
+/// The formatting buttons above the keyboard. A toolbar can't fit them all on an iPhone (iOS 26 spaces
+/// its items widely, and the ends were pushed off screen), so the buttons sit in a strip that spreads
+/// them out when there's room and scrolls sideways when there isn't, with Hide Keyboard pinned at the end.
+final class KeyboardBar: UIInputView {
+    struct Item {
+        let symbol: String
+        let label: String
+        let action: () -> Void
+    }
+
+    private static let height: CGFloat = 56
+    /// Eight buttons fit an iPhone 17 or 17 Pro without scrolling; narrower screens scroll.
+    private static let buttonWidth: CGFloat = 40
+
+    init(items: [Item], done: Item) {
+        super.init(frame: CGRect(x: 0, y: 0, width: 390, height: Self.height), inputViewStyle: .keyboard)
+        autoresizingMask = .flexibleWidth
+        allowsSelfSizing = true
+
+        let buttons = UIStackView(arrangedSubviews: items.map(Self.button))
+        buttons.distribution = .fillEqually
+        buttons.translatesAutoresizingMaskIntoConstraints = false
+        let scroll = UIScrollView()
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.alwaysBounceHorizontal = false
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.addSubview(buttons)
+
+        let strip = UIVisualEffectView(effect: UIGlassEffect())
+        strip.cornerConfiguration = .capsule()
+        strip.translatesAutoresizingMaskIntoConstraints = false
+        strip.contentView.addSubview(scroll)
+
+        let doneButton = Self.button(done)
+        doneButton.translatesAutoresizingMaskIntoConstraints = false
+        let doneGlass = UIVisualEffectView(effect: UIGlassEffect())
+        doneGlass.cornerConfiguration = .capsule()
+        doneGlass.translatesAutoresizingMaskIntoConstraints = false
+        doneGlass.contentView.addSubview(doneButton)
+
+        // The row fills an iPhone's width; on an iPad it stays compact and centred.
+        let row = UIView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        row.addSubview(strip)
+        row.addSubview(doneGlass)
+        let fill = row.widthAnchor.constraint(equalTo: safeAreaLayoutGuide.widthAnchor, constant: -16)
+        fill.priority = .defaultHigh
+        let content = scroll.contentLayoutGuide, frame = scroll.frameLayoutGuide
+        NSLayoutConstraint.activate([
+            row.centerXAnchor.constraint(equalTo: safeAreaLayoutGuide.centerXAnchor),
+            row.leadingAnchor.constraint(greaterThanOrEqualTo: safeAreaLayoutGuide.leadingAnchor, constant: 8),
+            row.widthAnchor.constraint(lessThanOrEqualToConstant: CGFloat(items.count) * 52 + 70),
+            fill,
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            strip.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+            strip.topAnchor.constraint(equalTo: row.topAnchor),
+            strip.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+            doneGlass.leadingAnchor.constraint(equalTo: strip.trailingAnchor, constant: 6),
+            doneGlass.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+            doneGlass.topAnchor.constraint(equalTo: strip.topAnchor),
+            doneGlass.bottomAnchor.constraint(equalTo: strip.bottomAnchor),
+            doneGlass.widthAnchor.constraint(equalTo: doneGlass.heightAnchor),
+            doneButton.centerXAnchor.constraint(equalTo: doneGlass.contentView.centerXAnchor),
+            doneButton.centerYAnchor.constraint(equalTo: doneGlass.contentView.centerYAnchor),
+
+            scroll.leadingAnchor.constraint(equalTo: strip.contentView.leadingAnchor, constant: 4),
+            scroll.trailingAnchor.constraint(equalTo: strip.contentView.trailingAnchor, constant: -4),
+            scroll.topAnchor.constraint(equalTo: strip.contentView.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: strip.contentView.bottomAnchor),
+            buttons.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            buttons.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            buttons.topAnchor.constraint(equalTo: content.topAnchor),
+            buttons.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            buttons.heightAnchor.constraint(equalTo: frame.heightAnchor),
+            // At least the strip's width, so the buttons spread out; wider (and scrolling) on small screens.
+            buttons.widthAnchor.constraint(greaterThanOrEqualTo: frame.widthAnchor),
+            buttons.widthAnchor.constraint(greaterThanOrEqualToConstant: CGFloat(items.count) * Self.buttonWidth),
+        ])
+        let fit = buttons.widthAnchor.constraint(equalTo: frame.widthAnchor)
+        fit.priority = .defaultLow
+        fit.isActive = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var intrinsicContentSize: CGSize { CGSize(width: UIView.noIntrinsicMetric, height: Self.height) }
+
+    private static func button(_ item: Item) -> UIButton {
+        let button = UIButton(type: .system, primaryAction: UIAction { _ in item.action() })
+        button.setImage(UIImage(systemName: item.symbol), for: .normal)
+        button.tintColor = Palette.accent
+        button.accessibilityLabel = item.label
+        button.widthAnchor.constraint(greaterThanOrEqualToConstant: buttonWidth).isActive = true
+        return button
     }
 }
 

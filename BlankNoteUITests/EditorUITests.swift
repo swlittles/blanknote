@@ -29,6 +29,38 @@ final class EditorUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Packing"].waitForExistence(timeout: 3))
     }
 
+    func testKeyboardBarFitsOnScreenAndFormats() {
+        let app = launch([])
+        app.buttons["New Note"].firstMatch.tap()
+        let editor = app.textViews["editor"]
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+
+        // Every button is fully on screen (none scrolled out of view on an iPhone 17 Pro), from
+        // Checklist at the start to Hide Keyboard pinned at the end.
+        let screen = app.windows.firstMatch.frame
+        let hide = app.buttons["Hide Keyboard"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 2))
+        XCTAssertTrue(screen.contains(hide.frame), "Hide Keyboard at \(hide.frame) is outside \(screen)")
+        for label in ["Checklist", "Bulleted List", "Heading", "Bold", "Italic", "Code", "Outdent", "Indent"] {
+            let button = app.buttons[label]
+            XCTAssertTrue(button.exists, label)
+            XCTAssertGreaterThanOrEqual(button.frame.minX, screen.minX, label)
+            XCTAssertLessThanOrEqual(button.frame.maxX, hide.frame.minX, "\(label) at \(button.frame) runs under Hide Keyboard")
+            XCTAssertTrue(button.isHittable, label)
+        }
+
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "keyboard bar"
+        shot.lifetime = .keepAlways
+        add(shot)
+
+        editor.typeText("Plan")
+        app.buttons["Checklist"].tap()
+        XCTAssertEqual(editor.value as? String, "- [ ] Plan")
+        app.buttons["Hide Keyboard"].tap()
+        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 1))
+    }
+
     func testTappingACheckboxTicksItWithoutTheKeyboard() {
         let app = launch(["-open", "Groceries"])
         let editor = app.textViews["editor"]
