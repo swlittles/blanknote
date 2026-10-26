@@ -7,6 +7,12 @@ import AppKit
 import UIKit
 #endif
 
+/// Settings on iPhone and iPad, shown as a sheet, optionally opened at a page.
+enum SettingsRoute: String, Identifiable, Hashable {
+    case general, profiles
+    var id: String { rawValue }
+}
+
 enum SidebarItem: Hashable {
     case all
     case folder(String)
@@ -39,6 +45,9 @@ final class Navigator {
     var newFolderParent: String?
     /// Bumped to put the cursor in the search field.
     private(set) var searchRequest = 0
+    var showNewProfile = false
+    /// Shows Settings (iPhone and iPad).
+    var settingsRoute: SettingsRoute?
 
     init(store: NoteStore) {
         self.store = store
@@ -367,6 +376,10 @@ final class Navigator {
             selection = note.path
         }
         if let query = LaunchOptions.search { searchText = query }
+        #if os(iOS)
+        if let route = LaunchOptions.settingsRoute { settingsRoute = route }
+        #endif
+        if LaunchOptions.showNewProfile { showNewProfile = true }
     }
 }
 

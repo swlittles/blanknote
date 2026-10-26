@@ -3,7 +3,7 @@ import SwiftUI
 
 @main
 struct InkwellApp: App {
-    @State private var store = NoteStore(options: LaunchOptions.storeOptions)
+    @State private var app = AppModel(profiles: LaunchOptions.makeProfileStore())
     @State private var shortcuts = LaunchOptions.makeShortcutStore()
     @AppStorage(Appearance.storageKey) private var appearance = Appearance.defaultValue
 
@@ -13,31 +13,49 @@ struct InkwellApp: App {
 
     var body: some Scene {
         WindowGroup(id: "main") {
-            RootView(store: store)
-                .environment(shortcuts)
-                .tint(Palette.accentColor)
-                // Also on every new window (iPad scenes start with the system style).
-                .onAppear { appearance.apply() }
-                .onChange(of: appearance) { appearance.apply() }
+            Group {
+                if let store = app.store {
+                    // A new profile means new notes: each window starts afresh.
+                    RootView(store: store)
+                        .id(app.storeID)
+                } else {
+                    Color(Palette.background).ignoresSafeArea()
+                }
+            }
+            .task { await app.start() }
+            .environment(app)
+            .environment(shortcuts)
+            // Also on every new window (iPad scenes start with the system style).
+            .onAppear { appearance.apply() }
+            .onChange(of: appearance) { appearance.apply() }
         }
-        .commands { InkwellCommands(bindings: shortcuts.activeBindings) }
+        .commands {
+            InkwellCommands(bindings: shortcuts.activeBindings, profiles: app.profiles.profiles,
+                            activeProfileID: app.activeProfile?.id, app: app)
+        }
         #if os(macOS)
         .defaultSize(width: 1180, height: 760)
         #endif
 
         #if os(macOS)
         Settings {
-            TabView {
-                Tab("General", systemImage: "gearshape") {
-                    SettingsView(store: store)
-                }
-                Tab("Shortcuts", systemImage: "keyboard") {
-                    ShortcutsSettingsView()
-                        .frame(width: 560, height: 620)
+            ThemeTinted {
+                TabView {
+                    Tab("General", systemImage: "gearshape") {
+                        if let store = app.store { SettingsView(store: store) }
+                    }
+                    Tab("Profiles", systemImage: "person.2") {
+                        NavigationStack { ProfilesSettingsView() }
+                            .frame(width: 560, height: 560)
+                    }
+                    Tab("Shortcuts", systemImage: "keyboard") {
+                        ShortcutsSettingsView()
+                            .frame(width: 560, height: 620)
+                    }
                 }
             }
+            .environment(app)
             .environment(shortcuts)
-            .tint(Palette.accentColor)
         }
         #endif
     }
@@ -51,6 +69,10 @@ extension FocusedValues {
 /// `ShortcutStore` as a value, so changing one in Settings rebuilds the menus straight away.
 struct InkwellCommands: Commands {
     let bindings: [ShortcutAction: KeyCombo]
+    /// Passed as values for the same reason as `bindings`.
+    let profiles: [Profile]
+    let activeProfileID: UUID?
+    let app: AppModel
     @FocusedValue(\.navigator) private var focusedNavigator
 
     /// The focused window, or else the last active one (the Mac's Settings window is in front, or
@@ -75,6 +97,21 @@ struct InkwellCommands: Commands {
             item(.previousNote) { $0.selectAdjacent(-1) }
             Divider()
             item(.deleteNote) { $0.deleteOpenNote() }
+        }
+        CommandMenu("Profile") {
+            ForEach(profiles) { profile in
+                Toggle(profile.name, isOn: Binding(get: { profile.id == activeProfileID }, set: { _ in app.switchTo(profile.id) }))
+            }
+            Divider()
+            item(.nextProfile) { _ in app.switchToNeighbor(1) }
+            item(.previousProfile) { _ in app.switchToNeighbor(-1) }
+            Divider()
+            Button("New Profile…") { navigator?.showNewProfile = true }
+            #if os(macOS)
+            SettingsLink { Text("Manage Profiles…") }
+            #else
+            Button("Manage Profiles…") { navigator?.settingsRoute = .profiles }
+            #endif
         }
         CommandGroup(after: .sidebar) {
             Divider()

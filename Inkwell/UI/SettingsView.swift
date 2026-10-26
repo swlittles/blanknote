@@ -20,6 +20,12 @@ struct SettingsView: View {
             }
             #if os(iOS)
             Section {
+                NavigationLink(value: SettingsRoute.profiles) {
+                    Label("Profiles", systemImage: "person.2")
+                }
+                .accessibilityIdentifier("profilesSettings")
+            }
+            Section {
                 NavigationLink("Keyboard Shortcuts") { ShortcutsSettingsView() }
                     .accessibilityIdentifier("keyboardShortcuts")
             } footer: {

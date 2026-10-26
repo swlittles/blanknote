@@ -5,16 +5,29 @@ editor styles Markdown as you type, and the theme uses Claude Code's colours in 
 
 ## Storage
 
-- Notes are files in one folder: iCloud Drive (`iCloud~com~example~inkwell/Documents`) once
-  iCloud is set up, otherwise the app's Documents folder (on iOS this shows in the Files app).
+- Notes are files in the notes container, one folder per profile: iCloud Drive
+  (`iCloud~com~example~inkwell/Documents`) once iCloud is set up, otherwise the app's Documents
+  folder (on iOS this shows in the Files app).
   Folders in the app are real folders. Recently Deleted is a hidden `.trash/` folder, emptied after 30 days.
 - The first line of a note is its title, and the file is renamed to match.
 - Optional YAML front matter holds `pinned`, `tags` and the trash bookkeeping. Keys Inkwell
   doesn't know about are kept as they are. Tags also come from `#tags` in the text.
-- Each device keeps a SQLite full-text index in Caches (`Index/notes.sqlite`). It's a cache:
+- Each device keeps a SQLite full-text index per profile in Caches (`Index/<profile id>.sqlite`). It's a cache:
   Settings › Rebuild Search Index recreates it from the files.
 - Changes from other devices (iCloud) or other apps (on the Mac) are picked up automatically.
   When iCloud keeps two versions of a note, the other one is saved as a "(conflicted copy)" note.
+
+## Profiles
+
+- A profile is a separate set of notes ("Personal", "Acme Corp"…): its own folders, tags, search
+  and Recently Deleted, and its own theme colour, which tints the whole UI. Switch from the top of
+  the sidebar, the Profile menu, or ⌃⌘] / ⌃⌘[. Manage them in Settings › Profiles.
+- Each profile is a top-level folder of the notes container with a hidden `.inkwell-profile.json`
+  (name, theme, order). On first launch, notes from before profiles moved into "Personal". A folder
+  created in the container (in Finder, say) becomes a new profile. Deleted profiles move to the
+  hidden `.deleted-profiles` folder.
+- Every profile syncs to every device on the iCloud account; which profile is open is per device.
+- Code: `ProfileStore` and `ProfileTheme`/`ThemeColors` in InkwellCore, `AppModel` in the app.
 
 ## Keyboard shortcuts and notifications
 
@@ -47,7 +60,8 @@ editor styles Markdown as you type, and the theme uses Claude Code's colours in 
 
 Launch arguments: `-demo` (fresh sample notes, not yours), `-open "<title>"`,
 `-sidebar all|trash|folder:<path>|tag:<tag>`, `-search "<text>"`, `-theme system|light|dark`,
-`-resetShortcuts`. Debug Mac builds also take `-themeSelfTest <file>` and `-shortcutSelfTest <file>`
+`-resetShortcuts`, `-profile "<name>"`, and on iPhone/iPad `-settings general|profiles` and
+`-newProfile`. Debug Mac builds also take `-themeSelfTest <file>` and `-shortcutSelfTest <file>`
 (see `App/DebugSelfTests.swift`).
 
 ## Not done yet

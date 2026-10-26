@@ -6,6 +6,7 @@ struct RootView: View {
     let store: NoteStore
     @State private var nav: Navigator
     @Environment(ShortcutStore.self) private var shortcuts
+    @Environment(AppModel.self) private var app
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openWindow) private var openWindow
     #if os(iOS)
@@ -21,6 +22,9 @@ struct RootView: View {
     }
 
     var body: some View {
+        // Redrawn from scratch in the new colours when the theme changes; the navigator (what's
+        // selected, the open note) carries over. Sheets sit outside it so they stay open.
+        let themeRevision = ThemeState.shared.revision
         NavigationSplitView {
             SidebarView(nav: nav)
                 #if os(macOS)
@@ -34,6 +38,21 @@ struct RootView: View {
         } detail: {
             EditorPane(nav: nav)
         }
+        .id(themeRevision)
+        .tint(Palette.accentColor)
+        .sheet(isPresented: $nav.showNewProfile) {
+            ThemeTinted { NewProfileView() }
+                .environment(app)
+        }
+        #if os(iOS)
+        .sheet(item: $nav.settingsRoute) { route in
+            ThemeTinted {
+                SettingsSheet(store: store, route: route)
+            }
+            .environment(app)
+            .environment(shortcuts)
+        }
+        #endif
         .overlay(alignment: ToastOverlay.edge == .top ? .top : .bottom) {
             ToastOverlay(toaster: nav.toasts)
         }
@@ -48,6 +67,7 @@ struct RootView: View {
             await store.start()
             nav.applyLaunchOptions()
             handlePendingAction()
+            if let notice = app.takeNotice() { nav.toasts.show(notice, systemImage: "person.crop.circle") }
             #if DEBUG && os(macOS)
             DebugSelfTests.run(shortcuts: shortcuts)
             #endif
@@ -56,10 +76,18 @@ struct RootView: View {
         .onChange(of: store.notes) { nav.notesChanged() }
         .onChange(of: store.folders) { nav.notesChanged() }
         .onChange(of: store.lastError) { showStoreError() }
+        .onChange(of: app.lastError) {
+            if let message = app.lastError {
+                app.lastError = nil
+                nav.toasts.show(message, systemImage: "exclamationmark.triangle.fill", style: .error)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .inkwellWillSwitchProfile)) { _ in nav.editor.flush() }
         .onChange(of: store.notices) { showStoreNotices() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 router.activeNavigator = nav
+                app.refresh()
                 store.scheduleReconcile()
             } else {
                 nav.editor.flush()

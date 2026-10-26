@@ -66,6 +66,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     case globalToggleApp, globalNewNote, globalSearch
     // Notes
     case newNote, newFolder, searchNotes, togglePin, deleteNote, nextNote, previousNote, copyMarkdown, showInFinder
+    // Profiles
+    case nextProfile, previousProfile
     // View
     case biggerText, smallerText, actualSize, toggleTheme
     // Format
@@ -75,6 +77,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
     public enum Group: String, CaseIterable, Sendable {
         case global = "Anywhere on Your Mac"
         case notes = "Notes"
+        case profiles = "Profiles"
         case view = "View"
         case format = "Format"
     }
@@ -83,6 +86,7 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         switch self {
         case .globalToggleApp, .globalNewNote, .globalSearch: .global
         case .newNote, .newFolder, .searchNotes, .togglePin, .deleteNote, .nextNote, .previousNote, .copyMarkdown, .showInFinder: .notes
+        case .nextProfile, .previousProfile: .profiles
         case .biggerText, .smallerText, .actualSize, .toggleTheme: .view
         default: .format
         }
@@ -107,6 +111,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .previousNote: "Previous Note"
         case .copyMarkdown: "Copy Markdown"
         case .showInFinder: "Show in Finder"
+        case .nextProfile: "Next Profile"
+        case .previousProfile: "Previous Profile"
         case .biggerText: "Bigger Text"
         case .smallerText: "Smaller Text"
         case .actualSize: "Default Text Size"
@@ -164,6 +170,8 @@ public enum ShortcutAction: String, CaseIterable, Codable, Sendable {
         case .previousNote: KeyCombo("up", optCmd)
         case .copyMarkdown: KeyCombo("c", shiftCmd)
         case .showInFinder: KeyCombo("r", shiftCmd)
+        case .nextProfile: KeyCombo("]", [.control, .command])
+        case .previousProfile: KeyCombo("[", [.control, .command])
         case .biggerText: KeyCombo("=", cmd)
         case .smallerText: KeyCombo("-", cmd)
         case .actualSize: KeyCombo("0", cmd)

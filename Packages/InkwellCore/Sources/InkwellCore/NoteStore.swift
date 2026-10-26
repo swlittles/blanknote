@@ -12,16 +12,21 @@ public final class NoteStore {
     }
 
     public struct Options: Sendable {
-        /// Use this folder instead of iCloud Drive or Documents (tests, demo data).
+        /// The notes folder: a profile's folder. Without one, the notes live directly in
+        /// `NotesContainer` (iCloud Drive or Documents).
         public var root: URL?
+        /// Where `root` is, which decides whether iCloud conflict handling and watching are used.
+        public var rootLocation: Location = .local
         public var indexURL: URL?
         public var useICloud = true
         public var watchForChanges = true
         /// Created as the first note when the folder is empty on first launch.
         public var welcomeNote: String?
 
-        public init(root: URL? = nil, indexURL: URL? = nil, useICloud: Bool = true, watchForChanges: Bool = true, welcomeNote: String? = nil) {
+        public init(root: URL? = nil, rootLocation: Location = .local, indexURL: URL? = nil, useICloud: Bool = true,
+                    watchForChanges: Bool = true, welcomeNote: String? = nil) {
             self.root = root
+            self.rootLocation = rootLocation
             self.indexURL = indexURL
             self.useICloud = useICloud
             self.watchForChanges = watchForChanges
@@ -118,40 +123,30 @@ public final class NoteStore {
         }
     }
 
+    /// Follows the notes folder to a new place (its profile was renamed). Note paths are relative,
+    /// so open notes and selections stay valid.
+    public func moveRoot(to root: URL) {
+        guard root != rootURL else { return }
+        rootURL = root
+        fileSystem = NoteFileSystem(root: root)
+        generation += 1
+        if options.watchForChanges {
+            watcher = FolderWatcher(root: root, iCloud: location == .iCloud) { [weak self] in
+                Task { @MainActor in self?.scheduleReconcile() }
+            }
+        }
+        scheduleReconcile()
+    }
+
     nonisolated static var defaultIndexURL: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Index", isDirectory: true)
             .appendingPathComponent("notes.sqlite")
     }
 
-    /// iCloud Drive when the app has a container and the user is signed in; Documents otherwise.
-    /// Notes written locally before iCloud became available are moved into iCloud.
     nonisolated static func resolveRoot(_ options: Options) -> (URL, Location) {
-        if let root = options.root { return (root, .local) }
-        let local = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        if options.useICloud, let container = FileManager.default.url(forUbiquityContainerIdentifier: nil) {
-            let documents = container.appendingPathComponent("Documents", isDirectory: true)
-            try? FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
-            moveLocalNotes(from: local, intoICloud: documents)
-            return (documents, .iCloud)
-        }
-        return (local, .local)
-    }
-
-    nonisolated private static func moveLocalNotes(from local: URL, intoICloud documents: URL) {
-        let manager = FileManager.default
-        guard let items = try? manager.contentsOfDirectory(at: local, includingPropertiesForKeys: nil) else { return }
-        for item in items where !item.lastPathComponent.hasPrefix(".") || item.lastPathComponent == NoteFileSystem.trashFolder {
-            var target = documents.appendingPathComponent(item.lastPathComponent)
-            var number = 2
-            while manager.fileExists(atPath: target.path) {
-                let base = item.deletingPathExtension().lastPathComponent
-                let ext = item.pathExtension
-                target = documents.appendingPathComponent(ext.isEmpty ? "\(base) \(number)" : "\(base) \(number).\(ext)")
-                number += 1
-            }
-            try? manager.setUbiquitous(true, itemAt: item, destinationURL: target)
-        }
+        if let root = options.root { return (root, options.rootLocation) }
+        return NotesContainer.resolve(useICloud: options.useICloud)
     }
 
     /// Re-scans the folder soon, coalescing bursts of change notifications.

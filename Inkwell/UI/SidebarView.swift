@@ -7,16 +7,18 @@ struct SidebarView: View {
     @State private var renaming: String?
     @State private var folderName = ""
     @State private var deleting: String?
-    #if os(iOS)
-    @State private var showSettings = false
-    #endif
 
     var body: some View {
         List(selection: $nav.sidebar) {
             Section {
-                Label("All Notes", systemImage: "note.text")
+                ProfileSwitcher(nav: nav)
+                    .sidebarRow(nav.isCompact)
+            }
+            Section {
+                SidebarLabel("All Notes", systemImage: "note.text")
                     .badge(store.notes.count { !$0.isTrashed })
                     .tag(SidebarItem.all)
+                    .sidebarRow(nav.isCompact)
                     .dropDestination(for: String.self) { paths, _ in
                         nav.move(paths, to: "")
                         return true
@@ -31,16 +33,18 @@ struct SidebarView: View {
             if !tags.isEmpty {
                 Section("Tags") {
                     ForEach(tags, id: \.tag) { item in
-                        Label(item.tag, systemImage: "number")
+                        SidebarLabel(item.tag, systemImage: "number")
                             .badge(item.count)
                             .tag(SidebarItem.tag(item.tag))
+                            .sidebarRow(nav.isCompact)
                     }
                 }
             }
             Section {
-                Label("Recently Deleted", systemImage: "trash")
+                SidebarLabel("Recently Deleted", systemImage: "trash")
                     .badge(store.notes.count(where: \.isTrashed))
                     .tag(SidebarItem.trash)
+                    .sidebarRow(nav.isCompact)
             }
         }
         .scrollContentBackground(.hidden)
@@ -57,25 +61,13 @@ struct SidebarView: View {
             #if os(iOS)
             ToolbarItem(placement: .topBarLeading) {
                 Button {
-                    showSettings = true
+                    nav.settingsRoute = .general
                 } label: {
                     Label("Settings", systemImage: "gearshape")
                 }
             }
             #endif
         }
-        #if os(iOS)
-        .sheet(isPresented: $showSettings) {
-            NavigationStack {
-                SettingsView(store: store)
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showSettings = false }
-                        }
-                    }
-            }
-        }
-        #endif
         .alert("New Folder", isPresented: Binding(get: { nav.newFolderParent != nil }, set: { if !$0 { nav.newFolderParent = nil } })) {
             TextField("Name", text: $folderName)
             Button("Cancel", role: .cancel) { folderName = "" }
@@ -109,9 +101,10 @@ struct SidebarView: View {
     }
 
     private func folderRow(_ node: FolderNode) -> some View {
-        Label(node.name, systemImage: "folder")
+        SidebarLabel(node.name, systemImage: "folder")
             .badge(store.notes.count { $0.folder == node.path })
             .tag(SidebarItem.folder(node.path))
+            .sidebarRow(nav.isCompact)
             .dropDestination(for: String.self) { paths, _ in
                 nav.move(paths, to: node.path)
                 return true
@@ -125,5 +118,44 @@ struct SidebarView: View {
                 Divider()
                 Button("Delete Folder", systemImage: "trash", role: .destructive) { deleting = node.path }
             }
+    }
+}
+
+/// On iPhone the sidebar is a plain list of cards: give them the theme's card colour, so the
+/// profile's tint reaches them. (On iPad and the Mac, sidebar rows have no background.)
+/// `compact` is the window's size class: inside a split view the sidebar column is always compact.
+private extension View {
+    @ViewBuilder
+    func sidebarRow(_ compact: Bool) -> some View {
+        #if os(iOS)
+        if compact {
+            listRowBackground(Color(Palette.card))
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+}
+
+/// A sidebar row's label with its icon in the theme's accent. (Mac sidebars otherwise use the
+/// app-wide accent colour, which doesn't follow the profile.)
+private struct SidebarLabel: View {
+    let title: String
+    let systemImage: String
+
+    init(_ title: String, systemImage: String) {
+        self.title = title
+        self.systemImage = systemImage
+    }
+
+    var body: some View {
+        Label {
+            Text(title)
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(Palette.accentColor)
+        }
     }
 }

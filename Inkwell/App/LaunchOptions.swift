@@ -3,12 +3,14 @@ import InkwellCore
 
 /// Launch arguments for screenshots and manual testing:
 ///
-/// - `-demo`: use a fresh folder of sample notes instead of your real ones
+/// - `-demo`: use fresh sample profiles and notes instead of your real ones
+/// - `-profile "<name>"`: switch to this profile at launch
 /// - `-open "<title>"`: open the note with this title
 /// - `-sidebar all|trash|folder:<path>|tag:<tag>`
 /// - `-search "<text>"`
 /// - `-theme system|light|dark`: the theme to start with; Settings can still change it
 /// - `-resetShortcuts`: start with the default keyboard shortcuts
+/// - `-settings general|profiles` (iPhone, iPad): open Settings; `-newProfile`: the New Profile sheet
 enum LaunchOptions {
     private static let arguments = ProcessInfo.processInfo.arguments
 
@@ -34,6 +36,9 @@ enum LaunchOptions {
         return ShortcutStore()
     }
 
+    static var settingsRoute: SettingsRoute? { value(after: "-settings").flatMap(SettingsRoute.init(rawValue:)) }
+    static var showNewProfile: Bool { arguments.contains("-newProfile") }
+
     static var openTitle: String? { value(after: "-open") }
     static var search: String? { value(after: "-search") }
 
@@ -46,12 +51,25 @@ enum LaunchOptions {
         return nil
     }
 
-    static var storeOptions: NoteStore.Options {
-        guard isDemo else { return NoteStore.Options(welcomeNote: SampleNotes.welcome) }
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+    static var profileName: String? { value(after: "-profile") }
+
+    private static var caches: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+    }
+
+    /// Where each profile's search index goes (one file per profile).
+    static var indexFolder: URL {
+        caches.appendingPathComponent(isDemo ? "Demo Index" : "Index", isDirectory: true)
+    }
+
+    /// The profiles: the real ones, or with `-demo` a fresh set of sample profiles.
+    @MainActor
+    static func makeProfileStore() -> ProfileStore {
+        guard isDemo else { return ProfileStore() }
         let root = caches.appendingPathComponent("Demo Notes", isDirectory: true)
         try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.removeItem(at: indexFolder)
         SampleNotes.write(to: root)
-        return NoteStore.Options(root: root, indexURL: caches.appendingPathComponent("Demo Index/notes.sqlite"), useICloud: false)
+        return ProfileStore(container: root)
     }
 }

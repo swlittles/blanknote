@@ -13,7 +13,7 @@ struct NoteListView: View {
             ForEach(sections(for: notes), id: \.title) { section in
                 Section(section.title) {
                     ForEach(section.notes) { note in
-                        NoteRow(note: note, showFolder: showsFolder)
+                        NoteRow(note: note, showFolder: showsFolder, isSelected: nav.selection == note.path)
                             #if os(iOS)
                             .modifier(SwipeActions(nav: nav, note: note))
                             #endif
@@ -162,6 +162,17 @@ struct NoteListView: View {
 struct NoteRow: View {
     let note: NoteSummary
     let showFolder: Bool
+    var isSelected = false
+
+    /// On iPhone and iPad the selected row is solid accent, so its text is white whether or not
+    /// the list has focus (iOS only whitens it while it does).
+    private var onAccent: Bool {
+        #if os(iOS)
+        isSelected
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -169,25 +180,26 @@ struct NoteRow: View {
                 if note.pinned, !note.isTrashed {
                     Image(systemName: "pin.fill")
                         .font(.caption2)
-                        .foregroundStyle(Palette.accentColor)
+                        .foregroundStyle(onAccent ? AnyShapeStyle(.white) : AnyShapeStyle(Palette.accentColor))
                 }
                 Text(note.displayTitle)
                     .font(.headline)
+                    .foregroundStyle(onAccent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                     .lineLimit(1)
             }
             HStack(spacing: 6) {
                 Text(dateText)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(onAccent ? AnyShapeStyle(.white.opacity(0.85)) : AnyShapeStyle(.secondary))
                     .monospacedDigit()
                 Text(note.preview.isEmpty ? "No additional text" : note.preview)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(onAccent ? AnyShapeStyle(.white.opacity(0.7)) : AnyShapeStyle(.tertiary))
                     .lineLimit(1)
             }
             .font(.subheadline)
             if showFolder, !note.folder.isEmpty, !note.isTrashed {
                 Label((note.folder as NSString).lastPathComponent, systemImage: "folder")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(onAccent ? AnyShapeStyle(.white.opacity(0.85)) : AnyShapeStyle(.secondary))
             }
         }
         .padding(.vertical, 3)

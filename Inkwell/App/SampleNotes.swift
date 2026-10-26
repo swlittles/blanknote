@@ -26,11 +26,56 @@ enum SampleNotes {
         > Format from the keyboard: ⌘B bold, ⌘I italic, ⌘⇧L checklist, ⌘] indent.
         """
 
+    /// Three sample profiles with notes: Personal (Claude), Acme Corp (Ocean) and Side Project (Forest).
     static func write(to root: URL) {
         let now = Date()
+        let profiles: [(folder: String, order: Int, accent: String, tints: Bool)] = [
+            ("Personal", 0, "#D97757", false),
+            ("Acme Corp", 1, "#3B7FC4", true),
+            ("Side Project", 2, "#4F8A4B", true),
+        ]
+        for profile in profiles {
+            let json = """
+                {
+                  "created" : "2026-10-01T09:00:00Z",
+                  "id" : "\(UUID().uuidString)",
+                  "name" : "\(profile.folder)",
+                  "order" : \(profile.order),
+                  "theme" : { "accent" : "\(profile.accent)", "tintsBackground" : \(profile.tints) }
+                }
+                """
+            let url = root.appendingPathComponent(profile.folder).appendingPathComponent(".inkwell-profile.json")
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? json.write(to: url, atomically: true, encoding: .utf8)
+        }
+
         let notes: [(path: String, age: TimeInterval, text: String)] = [
-            ("Welcome to Inkwell.md", 60, welcome),
-            ("Work/API design.md", 3600 * 2, """
+            ("Personal/Welcome to Inkwell.md", 60, welcome),
+            ("Personal/Groceries.md", 3600 * 50, """
+                Groceries
+                - [ ] Oat milk
+                - [x] Coffee beans
+                - [ ] Lemons
+                - [ ] Parmesan
+                """),
+            ("Personal/Travel/Trip ideas.md", 3600 * 24 * 9, """
+                # Trip ideas
+                > Somewhere with mountains and good bread.
+
+                - Lisbon in spring #travel
+                - Kyoto, but not in peak season
+                - Drive the coast road
+                """),
+            ("Personal/Snippets/zsh.md", 3600 * 24 * 40, """
+                # zsh
+                ```bash
+                # find big files
+                du -sh * | sort -h | tail -20
+                git log --oneline --graph --all
+                ```
+                #snippets
+                """),
+            ("Acme Corp/Engineering/API design.md", 3600 * 2, """
                 ---
                 pinned: true
                 ---
@@ -53,35 +98,27 @@ enum SampleNotes {
                 }
                 ```
                 """),
-            ("Work/Standup.md", 3600 * 26, """
+            ("Acme Corp/Standup.md", 3600 * 26, """
                 Standup
                 **Yesterday:** shipped the importer, fixed the *flaky* test
                 **Today:** review [the sync PR](https://github.com) and pair on search
                 ~~Blocked on design~~ unblocked #work
                 """),
-            ("Personal/Groceries.md", 3600 * 50, """
-                Groceries
-                - [ ] Oat milk
-                - [x] Coffee beans
-                - [ ] Lemons
-                - [ ] Parmesan
+            ("Acme Corp/Q4 planning.md", 3600 * 24 * 3, """
+                # Q4 planning
+                - [ ] Hire two backend engineers #hiring
+                - [ ] Ship offline mode
+                - [x] Retire the v1 API
                 """),
-            ("Personal/Trip ideas.md", 3600 * 24 * 9, """
-                # Trip ideas
-                > Somewhere with mountains and good bread.
-
-                - Lisbon in spring #travel
-                - Kyoto, but not in peak season
-                - Drive the coast road
+            ("Side Project/Launch checklist.md", 3600 * 5, """
+                # Launch checklist
+                - [x] Landing page
+                - [ ] Pricing #launch
+                - [ ] App Store screenshots
                 """),
-            ("Snippets/zsh.md", 3600 * 24 * 40, """
-                # zsh
-                ```bash
-                # find big files
-                du -sh * | sort -h | tail -20
-                git log --oneline --graph --all
-                ```
-                #snippets
+            ("Side Project/Ideas.md", 3600 * 24 * 12, """
+                Ideas
+                A tiny CLI that turns notes into a static site. #ideas
                 """),
         ]
         for note in notes {
