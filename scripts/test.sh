@@ -23,5 +23,9 @@ run() {
     | grep -E "Test Case .*(passed|failed|skipped)|error:|\*\* TEST" | grep -v simctl || true
 }
 run "iPhone" "$(sim "Inkwell iPhone" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro)"
-run "iPad" "$(sim "Inkwell iPad" com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB)" \
+# Boot the iPad fresh: after screenshots (scripts/sim_shot.sh) it stops passing hardware-keyboard
+# presses to the app, and the shortcut tests fail.
+ipad=$(sim "Inkwell iPad" com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB)
+xcrun simctl shutdown "$ipad" 2>/dev/null || true
+run "iPad" "$ipad" \
   -only-testing:InkwellUITests/ShortcutsAndToastsUITests
