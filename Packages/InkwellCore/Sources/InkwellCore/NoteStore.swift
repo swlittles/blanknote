@@ -43,6 +43,22 @@ public final class NoteStore {
     public private(set) var rootURL: URL?
     public private(set) var isReady = false
     public var lastError: String?
+    /// Things worth telling the user that happened without them doing anything. The app shows
+    /// them and calls `clearNotices()`.
+    public private(set) var notices: [Notice] = []
+
+    public struct Notice: Identifiable, Equatable, Sendable {
+        public enum Kind: Equatable, Sendable {
+            /// Two devices edited the note at once; the other version was saved as a copy.
+            case keptBothVersions(title: String)
+        }
+        public let id = UUID()
+        public var kind: Kind
+    }
+
+    public func clearNotices() {
+        notices.removeAll()
+    }
 
     @ObservationIgnored private let options: Options
     @ObservationIgnored private var fileSystem: NoteFileSystem?
@@ -175,7 +191,12 @@ public final class NoteStore {
             await index.apply(upserts: outcome.upserts, removals: outcome.removals)
             if outcome.notes != notes.sorted(by: { $0.path < $1.path }) { notes = outcome.notes }
             if outcome.folders != folders { folders = outcome.folders }
-            if outcome.createdConflictCopies { reconcileAgain = true }
+            if !outcome.conflicted.isEmpty {
+                reconcileAgain = true
+                notices += outcome.conflicted.map { path in
+                    Notice(kind: .keptBothVersions(title: outcome.notes.first { $0.path == path }?.displayTitle ?? Self.baseName(path)))
+                }
+            }
             forceFull = false
         } while reconcileAgain
     }
@@ -185,7 +206,8 @@ public final class NoteStore {
         var folders: [String] = []
         var upserts: [(summary: NoteSummary, body: String)] = []
         var removals: [String] = []
-        var createdConflictCopies = false
+        /// Notes that had a conflicting version saved as a copy.
+        var conflicted: [String] = []
     }
 
     nonisolated static func scan(_ fileSystem: NoteFileSystem, known: [String: NoteSummary], resolveConflicts: Bool) -> ScanOutcome {
@@ -202,7 +224,7 @@ public final class NoteStore {
                 continue
             }
             if resolveConflicts, !fileSystem.resolveConflicts(at: file.path).isEmpty {
-                outcome.createdConflictCopies = true
+                outcome.conflicted.append(file.path)
             }
             guard let text = try? fileSystem.read(file.path) else { continue }
             let note = NoteFile(contents: text)
@@ -393,13 +415,17 @@ public final class NoteStore {
     }
 
     /// Moves the folder's notes (including subfolders') to Recently Deleted and removes the folder.
-    public func deleteFolder(_ path: String) throws {
+    /// Returns the notes' paths in Recently Deleted.
+    @discardableResult
+    public func deleteFolder(_ path: String) throws -> [String] {
+        var trashed: [String] = []
         for note in notes where note.path.hasPrefix(path + "/") {
-            try trashNote(note.path)
+            trashed.append(try trashNote(note.path))
         }
         try requireFileSystem().remove(path)
         generation += 1
         folders.removeAll { $0 == path || $0.hasPrefix(path + "/") }
+        return trashed
     }
 
     private func uniqueFolderPath(named name: String, in parent: String, fileSystem: NoteFileSystem) -> String {

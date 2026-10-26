@@ -1,6 +1,11 @@
 import Foundation
 import InkwellCore
 import Observation
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 enum SidebarItem: Hashable {
     case all
@@ -15,6 +20,8 @@ enum SidebarItem: Hashable {
 final class Navigator {
     let store: NoteStore
     let editor: EditorModel
+    /// This window's in-app notifications.
+    let toasts = Toaster()
 
     var sidebar: SidebarItem? = .all
     var selection: String? {
@@ -30,6 +37,8 @@ final class Navigator {
     var isCompact = false
     /// Set to show the "New Folder" prompt (from the menu or toolbar); the value is the parent.
     var newFolderParent: String?
+    /// Bumped to put the cursor in the search field.
+    private(set) var searchRequest = 0
 
     init(store: NoteStore) {
         self.store = store
@@ -50,6 +59,9 @@ final class Navigator {
     }
 
     var isShowingTrash: Bool { sidebar == .trash && searchResults == nil }
+
+    /// The note in the editor.
+    var openNote: NoteSummary? { editor.path.flatMap(store.summary(for:)) }
 
     var visibleNotes: [NoteSummary] {
         if let searchResults {
@@ -92,14 +104,14 @@ final class Navigator {
 
     // MARK: Notes
 
-    func newNote() {
+    func newNote(body: String = "") {
         var folder = ""
         if case .folder(let path)? = sidebar { folder = path }
         if sidebar == .trash { sidebar = .all }
         searchText = ""
         searchResults = nil
         do {
-            let path = try store.createNote(in: folder)
+            let path = try store.createNote(in: folder, body: body)
             editor.open(path, focus: true)
             selection = path
         } catch {
@@ -107,21 +119,40 @@ final class Navigator {
         }
     }
 
-    func togglePin(_ path: String) {
-        guard let note = store.summary(for: path) else { return }
-        if editor.path == path { editor.flush() }
-        do { try store.setPinned(!note.pinned, for: path) } catch { store.report(error) }
+    /// Saves the note if it's open, and returns its path afterwards: saving renames the file
+    /// when the title changed.
+    private func savedPath(_ path: String) -> String {
+        guard editor.path == path else { return path }
+        editor.flush()
+        return editor.path ?? path
     }
 
-    /// Moves a note to Recently Deleted, or deletes it for good if it's already there.
-    func delete(_ path: String) {
-        let next = isCompact ? nil : neighbor(of: path)
-        if editor.path == path { editor.flush() }
+    func togglePin(_ path: String) {
+        let path = savedPath(path)
+        guard let note = store.summary(for: path) else { return }
         do {
-            if store.summary(for: path)?.isTrashed == true {
+            try store.setPinned(!note.pinned, for: path)
+            toasts.show(note.pinned ? "Unpinned “\(note.displayTitle)”" : "Pinned “\(note.displayTitle)”",
+                        systemImage: note.pinned ? "pin.slash" : "pin.fill")
+        } catch {
+            store.report(error)
+        }
+    }
+
+    /// Moves a note to Recently Deleted (with Undo), or deletes it for good if it's already there.
+    func delete(_ path: String) {
+        let path = savedPath(path)
+        guard let note = store.summary(for: path) else { return }
+        let next = isCompact ? nil : neighbor(of: path)
+        do {
+            if note.isTrashed {
                 try store.deleteNotePermanently(path)
+                toasts.show("Deleted “\(note.displayTitle)”", systemImage: "trash")
             } else {
-                try store.trashNote(path)
+                let trashed = try store.trashNote(path)
+                toasts.show("Moved “\(note.displayTitle)” to Recently Deleted", systemImage: "trash", actionTitle: "Undo") { [weak self] in
+                    self?.restore(trashed, select: true)
+                }
             }
             if selection == path || editor.path == path { selection = next }
         } catch {
@@ -129,10 +160,19 @@ final class Navigator {
         }
     }
 
-    func restore(_ path: String) {
+    func restore(_ path: String, select: Bool = false) {
         do {
-            try store.restoreNote(path)
-            if selection == path { selection = nil }
+            let folder = (try? store.readNote(path))?.frontMatter.value("trashed-from") ?? ""
+            let restored = try store.restoreNote(path)
+            if select {
+                if sidebar == .trash { sidebar = .all }
+                // On iPhone, stay in the list where the note reappears instead of opening it.
+                if !isCompact { selection = restored }
+            } else {
+                if selection == path { selection = nil }
+                let title = store.summary(for: restored)?.displayTitle ?? ""
+                toasts.show("Restored “\(title)” to \(Self.folderName(folder))", systemImage: "arrow.uturn.backward", style: .success)
+            }
         } catch {
             store.report(error)
         }
@@ -140,16 +180,25 @@ final class Navigator {
 
     func emptyTrash() {
         if let path = editor.path, store.summary(for: path)?.isTrashed == true { selection = nil }
-        do { try store.emptyTrash() } catch { store.report(error) }
+        let count = store.notes.count(where: \.isTrashed)
+        do {
+            try store.emptyTrash()
+            toasts.show(count == 1 ? "Deleted 1 note" : "Deleted \(count) notes", systemImage: "trash")
+        } catch {
+            store.report(error)
+        }
     }
 
-    func move(_ paths: [String], to folder: String) {
+    func move(_ paths: [String], to folder: String, announce: Bool = true) {
+        var moved: [(from: String, to: String)] = []
         for path in paths {
-            guard store.summary(for: path) != nil else { continue }
             let isOpen = editor.path == path
-            if isOpen { editor.flush() }
+            let path = savedPath(path)
+            guard store.summary(for: path) != nil else { continue }
             do {
                 let newPath = try store.moveNote(path, to: folder)
+                guard newPath != path else { continue }
+                moved.append((path, newPath))
                 if isOpen {
                     editor.follow(movedTo: newPath)
                     selection = newPath
@@ -157,6 +206,79 @@ final class Navigator {
             } catch {
                 store.report(error)
             }
+        }
+        guard !moved.isEmpty, announce else { return }
+        let what = moved.count == 1 ? "“\(store.summary(for: moved[0].to)?.displayTitle ?? "")”" : "\(moved.count) notes"
+        toasts.show("Moved \(what) to \(Self.folderName(folder))", systemImage: "folder", actionTitle: "Undo") { [weak self] in
+            guard let self else { return }
+            for item in moved {
+                self.move([item.to], to: (item.from as NSString).deletingLastPathComponent, announce: false)
+            }
+        }
+    }
+
+    static func folderName(_ folder: String) -> String {
+        folder.isEmpty ? "Notes" : "“\((folder as NSString).lastPathComponent)”"
+    }
+
+    // MARK: Commands for the open note
+
+    func togglePinOpenNote() {
+        if let path = editor.path { togglePin(path) }
+    }
+
+    func deleteOpenNote() {
+        if let path = editor.path ?? selection { delete(path) }
+    }
+
+    func copyOpenNote() {
+        guard editor.path != nil else { return }
+        editor.flush()
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(editor.text, forType: .string)
+        #else
+        UIPasteboard.general.string = editor.text
+        #endif
+        toasts.show("Copied as Markdown", systemImage: "doc.on.doc", style: .success)
+    }
+
+    #if os(macOS)
+    func showOpenNoteInFinder() {
+        editor.flush()
+        guard let path = editor.path, let root = store.rootURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([root.appendingPathComponent(path)])
+    }
+    #endif
+
+    /// Opens the next (`1`) or previous (`-1`) note in the list.
+    func selectAdjacent(_ step: Int) {
+        let notes = visibleNotes
+        guard !notes.isEmpty else { return }
+        guard let current = selection, let index = notes.firstIndex(where: { $0.path == current }) else {
+            selection = (step > 0 ? notes.first : notes.last)?.path
+            return
+        }
+        let target = index + step
+        guard notes.indices.contains(target) else { return }
+        selection = notes[target].path
+    }
+
+    /// Puts the cursor in the search field, optionally with a search typed in.
+    func requestSearch(_ text: String? = nil) {
+        if sidebar == nil { sidebar = .all }
+        if isCompact { selection = nil }
+        if let text { searchText = text }
+        searchRequest += 1
+    }
+
+    /// Carries out a request from a global hotkey, Siri, Spotlight or Shortcuts.
+    func handle(_ action: AppAction) {
+        switch action {
+        case .newNote(let text):
+            newNote(body: text ?? "")
+        case .search(let text):
+            requestSearch(text)
         }
     }
 
@@ -198,7 +320,32 @@ final class Navigator {
         editor.flush()
         if let open = editor.path, open.hasPrefix(path + "/") { selection = nil }
         if case .folder(let current)? = sidebar, current == path || current.hasPrefix(path + "/") { sidebar = .all }
-        do { try store.deleteFolder(path) } catch { store.report(error) }
+        do {
+            let trashed = try store.deleteFolder(path)
+            let name = (path as NSString).lastPathComponent
+            let detail = switch trashed.count {
+            case 0: ""
+            case 1: ". Its note is in Recently Deleted"
+            default: ". Its \(trashed.count) notes are in Recently Deleted"
+            }
+            toasts.show("Deleted “\(name)”\(detail)", systemImage: "folder.badge.minus", actionTitle: "Undo") { [weak self] in
+                self?.undoDeleteFolder(path, trashed: trashed)
+            }
+        } catch {
+            store.report(error)
+        }
+    }
+
+    private func undoDeleteFolder(_ path: String, trashed: [String]) {
+        do {
+            if trashed.isEmpty {
+                try store.createFolder(named: (path as NSString).lastPathComponent, in: (path as NSString).deletingLastPathComponent)
+            }
+            for note in trashed { try store.restoreNote(note) }
+            sidebar = .folder(path)
+        } catch {
+            store.report(error)
+        }
     }
 
     /// Keeps the selection valid after the notes changed on disk.

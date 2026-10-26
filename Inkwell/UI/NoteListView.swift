@@ -5,6 +5,7 @@ struct NoteListView: View {
     @Bindable var nav: Navigator
     @Environment(NoteStore.self) private var store
     @State private var confirmEmptyTrash = false
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         let notes = nav.visibleNotes
@@ -33,6 +34,8 @@ struct NoteListView: View {
         .background(Palette.backgroundColor)
         .navigationTitle(nav.title)
         .searchable(text: $nav.searchText, prompt: "Search all notes")
+        .searchFocused($searchFocused)
+        .onChange(of: nav.searchRequest) { searchFocused = true }
         .task(id: nav.searchText) { await nav.runSearch() }
         #if os(macOS)
         .onDeleteCommand {
@@ -52,7 +55,7 @@ struct NoteListView: View {
                 }
             } else {
                 ToolbarItem(placement: .primaryAction) {
-                    Button(action: nav.newNote) {
+                    Button { nav.newNote() } label: {
                         Label("New Note", systemImage: "square.and.pencil")
                     }
                 }
@@ -85,7 +88,7 @@ struct NoteListView: View {
             } description: {
                 Text("Write something down.")
             } actions: {
-                Button("New Note", action: nav.newNote)
+                Button("New Note") { nav.newNote() }
                     .buttonStyle(.borderedProminent)
             }
         }

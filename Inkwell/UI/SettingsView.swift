@@ -14,10 +14,18 @@ struct SettingsView: View {
                     ForEach(Appearance.allCases) { Text($0.title).tag($0) }
                 }
                 .accessibilityIdentifier("themePicker")
-                Stepper(value: $fontSize, in: 12...26, step: 1) {
+                Stepper(value: $fontSize, in: AppSettings.fontSizes, step: 1) {
                     LabeledContent("Text Size", value: "\(Int(fontSize)) pt")
                 }
             }
+            #if os(iOS)
+            Section {
+                NavigationLink("Keyboard Shortcuts") { ShortcutsSettingsView() }
+                    .accessibilityIdentifier("keyboardShortcuts")
+            } footer: {
+                Text("For a hardware keyboard. To start Inkwell from anywhere, use Siri, Spotlight, the Action Button or Back Tap with the “New Note” and “Search Notes” shortcuts.")
+            }
+            #endif
             Section {
                 LabeledContent("Location", value: store.location == .iCloud ? "iCloud Drive" : "On This Device")
                 if let root = store.rootURL {

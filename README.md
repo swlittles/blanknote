@@ -16,23 +16,39 @@ editor styles Markdown as you type, and the theme uses Claude Code's colours in 
 - Changes from other devices (iCloud) or other apps (on the Mac) are picked up automatically.
   When iCloud keeps two versions of a note, the other one is saved as a "(conflicted copy)" note.
 
+## Keyboard shortcuts and notifications
+
+- Every command has a default shortcut, and all of them can be changed in Settings › Shortcuts
+  (Mac) or Settings › Keyboard Shortcuts (iPad, or iPhone with a keyboard). Defaults and conflict
+  rules live in `Packages/InkwellCore/Sources/InkwellCore/Shortcuts.swift`.
+- Global hotkeys on the Mac work in any app: ⌃⌥⌘I shows or hides Inkwell, ⌃⌥⌘N starts a note,
+  ⌃⌥⌘F searches. They use Carbon `RegisterEventHotKey`, so they need no Accessibility permission.
+- iPhone and iPad can't have system-wide hotkeys. The App Shortcuts "New Note" and "Search Notes"
+  cover that instead: Siri, Spotlight, the Action Button, Back Tap and the Shortcuts app.
+- In-app notifications (`UI/Toasts.swift`) confirm actions, offer Undo for deleting and moving,
+  and report reloads, sync conflicts and errors.
+
 ## Layout
 
 - `Packages/InkwellCore`: platform-independent code (note format, store, search index,
   Markdown highlighter and editing commands). `swift test` runs its tests on the Mac.
 - `Inkwell/`: the SwiftUI app. `Editor/` wraps TextKit 2 text views (`UITextView`, `NSTextView`).
-- `InkwellUITests/`: iPhone UI tests for typing, checkboxes and search.
+- `InkwellUITests/`: UI tests for typing, checkboxes, search, the theme, Undo, and (on iPad)
+  hardware-keyboard shortcuts and the shortcut recorder.
 
 ## Scripts
 
 - `scripts/build.sh [mac|ios]` generates the project (XcodeGen) and builds.
-- `scripts/test.sh [--unit]` runs the unit tests, then the UI tests on the "Inkwell iPhone" simulator.
+- `scripts/test.sh [--unit]` runs the unit tests, then the UI tests on the "Inkwell iPhone" and
+  "Inkwell iPad" simulators.
 - `scripts/mac_shot.sh out.png -demo -open "API design" -theme dark` takes a Mac screenshot.
 - `scripts/sim_shot.sh iphone|ipad out.png -demo …` takes a simulator screenshot.
 - `swift scripts/render_icon.swift <dir>` renders the app icon.
 
 Launch arguments: `-demo` (fresh sample notes, not yours), `-open "<title>"`,
-`-sidebar all|trash|folder:<path>|tag:<tag>`, `-search "<text>"`, `-theme system|light|dark`.
+`-sidebar all|trash|folder:<path>|tag:<tag>`, `-search "<text>"`, `-theme system|light|dark`,
+`-resetShortcuts`. Debug Mac builds also take `-themeSelfTest <file>` and `-shortcutSelfTest <file>`
+(see `App/DebugSelfTests.swift`).
 
 ## Not done yet
 

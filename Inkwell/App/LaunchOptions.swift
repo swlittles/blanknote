@@ -1,8 +1,5 @@
 import Foundation
 import InkwellCore
-#if os(macOS)
-import AppKit
-#endif
 
 /// Launch arguments for screenshots and manual testing:
 ///
@@ -11,6 +8,7 @@ import AppKit
 /// - `-sidebar all|trash|folder:<path>|tag:<tag>`
 /// - `-search "<text>"`
 /// - `-theme system|light|dark`: the theme to start with; Settings can still change it
+/// - `-resetShortcuts`: start with the default keyboard shortcuts
 enum LaunchOptions {
     private static let arguments = ProcessInfo.processInfo.arguments
 
@@ -27,26 +25,14 @@ enum LaunchOptions {
         UserDefaults.standard.set(theme.rawValue, forKey: Appearance.storageKey)
     }
 
-    #if DEBUG && os(macOS)
-    /// `-themeSelfTest <file>`: sets the theme setting to dark, light, then system (the way the
-    /// Settings picker does) and writes what the window actually shows after each to `<file>`.
+
     @MainActor
-    static func runThemeSelfTest() {
-        guard let path = value(after: "-themeSelfTest") else { return }
-        Task { @MainActor in
-            var lines: [String] = []
-            try? await Task.sleep(for: .seconds(1))
-            for theme in [Appearance.dark, .light, .system] {
-                UserDefaults.standard.set(theme.rawValue, forKey: Appearance.storageKey)
-                try? await Task.sleep(for: .milliseconds(500))
-                let shown = NSApp.windows.filter(\.isVisible).map { $0.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])?.rawValue ?? "?" }
-                lines.append("\(theme.rawValue): \(shown.joined(separator: ","))")
-            }
-            lines.append("system is: \(NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])?.rawValue ?? "?")")
-            try? lines.joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
+    static func makeShortcutStore() -> ShortcutStore {
+        if arguments.contains("-resetShortcuts") {
+            UserDefaults.standard.removeObject(forKey: ShortcutStore.defaultsKey)
         }
+        return ShortcutStore()
     }
-    #endif
 
     static var openTitle: String? { value(after: "-open") }
     static var search: String? { value(after: "-search") }

@@ -19,7 +19,12 @@ struct EditorPane: View {
         Group {
             if let path = nav.editor.path, let note = store.summary(for: path) {
                 MarkdownEditor(model: nav.editor, fontSize: CGFloat(fontSize))
-                    .onChange(of: note.modified) { nav.editor.reloadIfChangedOnDisk() }
+                    .onChange(of: note.modified) {
+                        if nav.editor.reloadIfChangedOnDisk() {
+                            nav.toasts.show("Updated with changes made on another device or in another app",
+                                            systemImage: "arrow.triangle.2.circlepath")
+                        }
+                    }
                     .safeAreaInset(edge: .top, spacing: 0) {
                         if note.isTrashed { trashBanner(note) }
                     }
@@ -71,17 +76,9 @@ struct EditorPane: View {
             ToolbarItem {
                 Menu {
                     MoveMenu(nav: nav, path: note.path)
-                    Button("Copy Markdown", systemImage: "doc.on.doc") {
-                        nav.editor.flush()
-                        copyToPasteboard(nav.editor.text)
-                    }
+                    Button("Copy Markdown", systemImage: "doc.on.doc") { nav.copyOpenNote() }
                     #if os(macOS)
-                    if let root = store.rootURL {
-                        Button("Show in Finder", systemImage: "folder") {
-                            nav.editor.flush()
-                            NSWorkspace.shared.activateFileViewerSelecting([root.appendingPathComponent(note.path)])
-                        }
-                    }
+                    Button("Show in Finder", systemImage: "folder") { nav.showOpenNoteInFinder() }
                     #endif
                     Divider()
                     Button("Delete Note", systemImage: "trash", role: .destructive) { nav.delete(note.path) }
@@ -90,14 +87,5 @@ struct EditorPane: View {
                 }
             }
         }
-    }
-
-    private func copyToPasteboard(_ text: String) {
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        #else
-        UIPasteboard.general.string = text
-        #endif
     }
 }

@@ -81,15 +81,16 @@ public final class EditorModel {
     }
 
     /// Reloads the note if its file changed on disk (an edit from another device or app) and
-    /// there are no unsaved edits here.
-    public func reloadIfChangedOnDisk() {
+    /// there are no unsaved edits here. Returns true if the text changed.
+    @discardableResult
+    public func reloadIfChangedOnDisk() -> Bool {
         guard let path, !isDirty, let summary = store.summary(for: path), summary.modified != knownModified,
-              let file = try? store.readNote(path) else { return }
+              let file = try? store.readNote(path) else { return false }
         knownModified = summary.modified
-        if file.body != text {
-            text = file.body
-            revision += 1
-        }
+        guard file.body != text else { return false }
+        text = file.body
+        revision += 1
+        return true
     }
 
     private func load() {

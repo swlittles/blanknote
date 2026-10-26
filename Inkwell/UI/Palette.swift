@@ -23,10 +23,12 @@ enum Palette {
     static let tertiaryText = PlatformColor.dynamic(light: 0xA8A69E, dark: 0x76746D)
     /// List rows on iPhone and iPad, a step lighter (or darker) than the background.
     static let card = PlatformColor.dynamic(light: 0xFFFFFF, dark: 0x2E2E2B)
-    static let selectedRow = PlatformColor.dynamic(light: 0xF6DED4, dark: 0x4A3329)
+    /// iOS draws a selected row's text white, so this is a solid coral.
+    static let selectedRow = PlatformColor.dynamic(light: 0xC96442, dark: 0xB85A3C)
     static let codeBackground = PlatformColor.dynamic(light: 0xF0EEE6, dark: 0x30302E)
     static let green = PlatformColor.dynamic(light: 0x5F7743, dark: 0xA3B784)
     static let blue = PlatformColor.dynamic(light: 0x3F6F9E, dark: 0x8DB4DC)
+    static let danger = PlatformColor.dynamic(light: 0xC2413A, dark: 0xE5695F)
     static let tagBackground = PlatformColor.dynamic(light: 0xD97757, dark: 0xD97757, alpha: 0.14)
     static let selection = PlatformColor.dynamic(light: 0xD97757, dark: 0xD97757, alpha: 0.28)
 

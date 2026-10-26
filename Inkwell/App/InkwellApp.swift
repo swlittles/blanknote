@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct InkwellApp: App {
     @State private var store = NoteStore(options: LaunchOptions.storeOptions)
+    @State private var shortcuts = LaunchOptions.makeShortcutStore()
     @AppStorage(Appearance.storageKey) private var appearance = Appearance.defaultValue
 
     init() {
@@ -11,27 +12,32 @@ struct InkwellApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             RootView(store: store)
+                .environment(shortcuts)
                 .tint(Palette.accentColor)
                 // Also on every new window (iPad scenes start with the system style).
-                .onAppear {
-                    appearance.apply()
-                    #if DEBUG && os(macOS)
-                    LaunchOptions.runThemeSelfTest()
-                    #endif
-                }
+                .onAppear { appearance.apply() }
                 .onChange(of: appearance) { appearance.apply() }
         }
-        .commands { InkwellCommands() }
+        .commands { InkwellCommands(bindings: shortcuts.activeBindings) }
         #if os(macOS)
         .defaultSize(width: 1180, height: 760)
         #endif
 
         #if os(macOS)
         Settings {
-            SettingsView(store: store)
-                .tint(Palette.accentColor)
+            TabView {
+                Tab("General", systemImage: "gearshape") {
+                    SettingsView(store: store)
+                }
+                Tab("Shortcuts", systemImage: "keyboard") {
+                    ShortcutsSettingsView()
+                        .frame(width: 560, height: 620)
+                }
+            }
+            .environment(shortcuts)
+            .tint(Palette.accentColor)
         }
         #endif
     }
@@ -41,39 +47,76 @@ extension FocusedValues {
     @Entry var navigator: Navigator?
 }
 
+/// The menus (and, on iPad, the keyboard shortcut overlay). The shortcuts come from the
+/// `ShortcutStore` as a value, so changing one in Settings rebuilds the menus straight away.
 struct InkwellCommands: Commands {
-    @FocusedValue(\.navigator) private var navigator
+    let bindings: [ShortcutAction: KeyCombo]
+    @FocusedValue(\.navigator) private var focusedNavigator
+
+    /// The focused window, or else the last active one (the Mac's Settings window is in front, or
+    /// SwiftUI hasn't reported focus yet).
+    private var navigator: Navigator? { focusedNavigator ?? ActionRouter.shared.activeNavigator }
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("New Note") { navigator?.newNote() }
-                .keyboardShortcut("n")
-                .disabled(navigator == nil)
-            Button("New Folder") { navigator?.newFolderParent = "" }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-                .disabled(navigator == nil)
+            item(.newNote) { $0.newNote() }
+            item(.newFolder) { $0.newFolderParent = "" }
+        }
+        CommandMenu("Note") {
+            item(.searchNotes) { $0.requestSearch() }
+            Divider()
+            item(.togglePin, title: navigator?.openNote?.pinned == true ? "Unpin Note" : "Pin Note") { $0.togglePinOpenNote() }
+            item(.copyMarkdown) { $0.copyOpenNote() }
+            #if os(macOS)
+            item(.showInFinder) { $0.showOpenNoteInFinder() }
+            #endif
+            Divider()
+            item(.nextNote) { $0.selectAdjacent(1) }
+            item(.previousNote) { $0.selectAdjacent(-1) }
+            Divider()
+            item(.deleteNote) { $0.deleteOpenNote() }
+        }
+        CommandGroup(after: .sidebar) {
+            Divider()
+            item(.biggerText) { nav in
+                nav.toasts.show("Text size \(Int(AppSettings.changeFontSize(by: 1))) pt", systemImage: "textformat.size.larger")
+            }
+            item(.smallerText) { nav in
+                nav.toasts.show("Text size \(Int(AppSettings.changeFontSize(by: -1))) pt", systemImage: "textformat.size.smaller")
+            }
+            item(.actualSize) { nav in
+                nav.toasts.show("Text size \(Int(AppSettings.changeFontSize(by: nil))) pt", systemImage: "textformat.size")
+            }
+            item(.toggleTheme) { nav in
+                let theme = AppSettings.toggleTheme()
+                nav.toasts.show(theme == .dark ? "Dark theme" : "Light theme", systemImage: theme == .dark ? "moon.fill" : "sun.max.fill")
+            }
         }
         CommandMenu("Format") {
-            format("Bold", .bold, "b")
-            format("Italic", .italic, "i")
-            format("Strikethrough", .strikethrough, "x", [.command, .shift])
-            format("Inline Code", .inlineCode, "`")
-            format("Link", .link, "k")
-            Divider()
-            format("Heading", .heading, "h", [.command, .shift])
-            format("Checklist", .checklist, "l", [.command, .shift])
-            format("Bulleted List", .bulletList, "7", [.command, .shift])
-            format("Numbered List", .numberedList, "9", [.command, .shift])
-            format("Quote", .quote, "'")
-            format("Code Block", .codeBlock, "m", [.command, .shift])
-            Divider()
-            format("Indent", .indent, "]")
-            format("Outdent", .outdent, "[")
+            ForEach(Self.formatSections, id: \.self) { section in
+                Section {
+                    ForEach(section, id: \.self) { action in
+                        item(action) { _ in
+                            if let format = action.formatAction { FormatCommand.send(format) }
+                        }
+                    }
+                }
+            }
         }
     }
 
-    private func format(_ title: String, _ action: FormatAction, _ key: KeyEquivalent, _ modifiers: EventModifiers = .command) -> some View {
-        Button(title) { FormatCommand.send(action) }
-            .keyboardShortcut(key, modifiers: modifiers)
+    private static let formatSections: [[ShortcutAction]] = [
+        [.bold, .italic, .strikethrough, .inlineCode, .link],
+        [.heading, .checklist, .bulletList, .numberedList, .quote, .codeBlock],
+        [.indent, .outdent],
+    ]
+
+    private func item(_ action: ShortcutAction, title: String? = nil, perform: @escaping (Navigator) -> Void) -> some View {
+        // Never disabled: menus are built before the first window reports in, and SwiftUI wouldn't
+        // rebuild them when it does. The window is looked up when the command runs instead.
+        Button(title ?? action.title) {
+            if let navigator { perform(navigator) }
+        }
+        .keyboardShortcut(bindings[action]?.keyboardShortcut)
     }
 }
