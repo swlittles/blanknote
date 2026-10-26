@@ -1,4 +1,4 @@
-# Inkwell (working title)
+# BlankNote
 
 A Markdown notes app for Mac, iPad and iPhone. Every note is a plain `.md` file, the
 editor styles Markdown as you type, and the theme uses Claude Code's colours in light and dark.
@@ -6,11 +6,11 @@ editor styles Markdown as you type, and the theme uses Claude Code's colours in 
 ## Storage
 
 - Notes are files in the notes container, one folder per profile: iCloud Drive
-  (`iCloud~com~example~inkwell/Documents`) once iCloud is set up, otherwise the app's Documents
+  (`iCloud~<bundle id>/Documents`) once iCloud is set up, otherwise the app's Documents
   folder (on iOS this shows in the Files app).
   Folders in the app are real folders. Recently Deleted is a hidden `.trash/` folder, emptied after 30 days.
 - The first line of a note is its title, and the file is renamed to match.
-- Optional YAML front matter holds `pinned`, `tags` and the trash bookkeeping. Keys Inkwell
+- Optional YAML front matter holds `pinned`, `tags` and the trash bookkeeping. Keys BlankNote
   doesn't know about are kept as they are. Tags also come from `#tags` in the text.
 - Each device keeps a SQLite full-text index per profile in Caches (`Index/<profile id>.sqlite`). It's a cache:
   Settings › Rebuild Search Index recreates it from the files.
@@ -28,19 +28,19 @@ editor styles Markdown as you type, and the theme uses Claude Code's colours in 
 - A profile is a separate set of notes ("Personal", "Acme Corp"…): its own folders, tags, search
   and Recently Deleted, and its own theme colour, which tints the whole UI. Switch from the top of
   the sidebar, the Profile menu, or ⌃⌘] / ⌃⌘[. Manage them in Settings › Profiles.
-- Each profile is a top-level folder of the notes container with a hidden `.inkwell-profile.json`
+- Each profile is a top-level folder of the notes container with a hidden `.blanknote-profile.json`
   (name, theme, order). On first launch, notes from before profiles moved into "Personal". A folder
   created in the container (in Finder, say) becomes a new profile. Deleted profiles move to the
   hidden `.deleted-profiles` folder.
 - Every profile syncs to every device on the iCloud account; which profile is open is per device.
-- Code: `ProfileStore` and `ProfileTheme`/`ThemeColors` in InkwellCore, `AppModel` in the app.
+- Code: `ProfileStore` and `ProfileTheme`/`ThemeColors` in BlankNoteCore, `AppModel` in the app.
 
 ## Keyboard shortcuts and notifications
 
 - Every command has a default shortcut, and all of them can be changed in Settings › Shortcuts
   (Mac) or Settings › Keyboard Shortcuts (iPad, or iPhone with a keyboard). Defaults and conflict
-  rules live in `Packages/InkwellCore/Sources/InkwellCore/Shortcuts.swift`.
-- Global hotkeys on the Mac work in any app: ⌃⌥⌘I shows or hides Inkwell, ⌃⌥⌘N starts a note,
+  rules live in `Packages/BlankNoteCore/Sources/BlankNoteCore/Shortcuts.swift`.
+- Global hotkeys on the Mac work in any app: ⌃⌥⌘B shows or hides BlankNote, ⌃⌥⌘N starts a note,
   ⌃⌥⌘F searches. They use Carbon `RegisterEventHotKey`, so they need no Accessibility permission.
 - iPhone and iPad can't have system-wide hotkeys. The App Shortcuts "New Note" and "Search Notes"
   cover that instead: Siri, Spotlight, the Action Button, Back Tap and the Shortcuts app.
@@ -49,17 +49,27 @@ editor styles Markdown as you type, and the theme uses Claude Code's colours in 
 
 ## Layout
 
-- `Packages/InkwellCore`: platform-independent code (note format, store, search index,
+- `Packages/BlankNoteCore`: platform-independent code (note format, store, search index,
   Markdown highlighter and editing commands). `swift test` runs its tests on the Mac.
-- `Inkwell/`: the SwiftUI app. `Editor/` wraps TextKit 2 text views (`UITextView`, `NSTextView`).
-- `InkwellUITests/`: UI tests for typing, checkboxes, search, the theme, Undo, and (on iPad)
+- `BlankNote/`: the SwiftUI app. `Editor/` wraps TextKit 2 text views (`UITextView`, `NSTextView`).
+- `BlankNoteUITests/`: UI tests for typing, checkboxes, search, the theme, Undo, and (on iPad)
   hardware-keyboard shortcuts and the shortcut recorder.
+
+## Building
+
+Needs Xcode 26 and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
+`scripts/build.sh` generates `BlankNote.xcodeproj` and builds for the Mac and the iOS simulator.
+
+The bundle ID and signing team come from `Config/Signing.xcconfig`. Its defaults (`com.example`,
+no team) are enough for Mac Debug builds and the simulator. To run on a device or set up iCloud,
+copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig` (ignored by git) and put in your
+own bundle ID prefix and team ID.
 
 ## Scripts
 
 - `scripts/build.sh [mac|ios]` generates the project (XcodeGen) and builds.
-- `scripts/test.sh [--unit]` runs the unit tests, then the UI tests on the "Inkwell iPhone" and
-  "Inkwell iPad" simulators.
+- `scripts/test.sh [--unit]` runs the unit tests, then the UI tests on the "BlankNote iPhone" and
+  "BlankNote iPad" simulators.
 - `scripts/mac_shot.sh out.png -demo -open "API design" -theme dark` takes a Mac screenshot.
 - `scripts/sim_shot.sh iphone|ipad out.png -demo …` takes a simulator screenshot.
 - `swift scripts/render_icon.swift <dir>` renders the app icon.
@@ -72,7 +82,11 @@ Launch arguments: `-demo` (fresh sample notes, not yours), `-open "<title>"`,
 
 ## Not done yet
 
-- iCloud container, signing and TestFlight (waiting on the final name)
+- iCloud container, signing and TestFlight
 - Apple Notes import
 - Images and attachments (`attachments/` is reserved for them)
 - Following `[[wiki links]]` between notes
+
+## License
+
+MIT. See [LICENSE](LICENSE).

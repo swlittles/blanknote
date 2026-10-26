@@ -4,5 +4,7 @@ build/
 DerivedData/
 .build/
 .swiftpm/
-Packages/InkwellCore/.build/
+Packages/BlankNoteCore/.build/
 xcuserdata/
+# Your own bundle ID prefix and signing team (see Config/Signing.xcconfig).
+Config/Local.xcconfig

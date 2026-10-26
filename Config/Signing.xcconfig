@@ -1,0 +1,9 @@
+// Bundle ID and signing team. These defaults build and run as they are: Mac Debug builds are
+// ad-hoc signed and the iOS simulator needs no team.
+//
+// To sign with your own Apple developer account (a device, iCloud, TestFlight), copy
+// Local.xcconfig.example to Local.xcconfig, which git ignores, and fill it in.
+BUNDLE_ID_PREFIX = com.example
+DEVELOPMENT_TEAM =
+
+#include? "Local.xcconfig"
