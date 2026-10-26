@@ -74,6 +74,8 @@ own bundle ID prefix and team ID.
   "BlankNote iPad" simulators.
 - `scripts/mac_shot.sh out.png -demo -open "API design" -theme dark` takes a Mac screenshot.
 - `scripts/sim_shot.sh iphone|ipad out.png -demo …` takes a simulator screenshot.
+- `scripts/testflight.sh [--no-upload]` archives an iPhone/iPad Release build and uploads it to
+  TestFlight. It needs your own signing setup: see the comment at the top of the script.
 - `scripts/check_public.sh` checks the files and history for personal strings listed in the
   git-ignored `.public-denylist`. Run it before pushing.
 - `swift scripts/render_icon.swift` renders the app icon (iOS light, dark and tinted, and the Mac sizes)
@@ -87,7 +89,7 @@ Launch arguments: `-demo` (fresh sample notes, not yours), `-open "<title>"`,
 
 ## Not done yet
 
-- iCloud container, signing and TestFlight
+- iCloud sync (notes are stored on the device for now)
 - Apple Notes import
 - Images and attachments (`attachments/` is reserved for them)
 - Following `[[wiki links]]` between notes
