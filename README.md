@@ -7,9 +7,11 @@ editor styles Markdown as you type, and the theme uses Claude Code's colours in 
 
 ## Storage
 
-- Notes are files in the notes container, one folder per profile: iCloud Drive
-  (`iCloud~<bundle id>/Documents`) once iCloud is set up, otherwise the app's Documents
-  folder (on iOS this shows in the Files app).
+- Notes are files in the notes container, one folder per profile: the app's iCloud Drive folder
+  (container `iCloud.<bundle id>`, shown as "BlankNote" in iCloud Drive in Finder and the Files app)
+  when the build has iCloud and the device is signed in, otherwise the app's Documents folder.
+  Notes written on the device before iCloud was available move into iCloud on the next launch.
+  Settings shows which one is in use.
   Folders in the app are real folders. Recently Deleted is a hidden `.trash/` folder, emptied after 30 days.
 - The first line of a note is its title, and the file is renamed to match.
 - Optional YAML front matter holds `pinned`, `tags` and the trash bookkeeping. Keys BlankNote
@@ -63,9 +65,11 @@ Needs Xcode 26 and [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew inst
 `scripts/build.sh` generates `BlankNote.xcodeproj` and builds for the Mac and the iOS simulator.
 
 The bundle ID and signing team come from `Config/Signing.xcconfig`. Its defaults (`com.example`,
-no team) are enough for Mac Debug builds and the simulator. To run on a device or set up iCloud,
-copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig` (ignored by git) and put in your
-own bundle ID prefix and team ID.
+no team) are enough for Mac Debug builds and the simulator. Debug builds keep notes on the device;
+only Release builds have the iCloud entitlements (`BlankNote/*-Release.entitlements`), because
+iCloud needs a provisioning profile with the container `iCloud.<bundle id>`. To run on a device or
+set up iCloud, copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig` (ignored by git) and
+put in your own bundle ID prefix and team ID.
 
 ## Scripts
 
@@ -74,8 +78,8 @@ own bundle ID prefix and team ID.
   "BlankNote iPad" simulators.
 - `scripts/mac_shot.sh out.png -demo -open "API design" -theme dark` takes a Mac screenshot.
 - `scripts/sim_shot.sh iphone|ipad out.png -demo …` takes a simulator screenshot.
-- `scripts/testflight.sh [--no-upload]` archives an iPhone/iPad Release build and uploads it to
-  TestFlight. It needs your own signing setup: see the comment at the top of the script.
+- `scripts/testflight.sh [ios|mac|all] [--no-upload]` archives Release builds for iPhone/iPad and
+  the Mac and uploads them to TestFlight. It needs your own signing setup: see the comment at the top of the script.
 - `scripts/check_public.sh` checks the files and history for personal strings listed in the
   git-ignored `.public-denylist`. Run it before pushing.
 - `swift scripts/render_icon.swift` renders the app icon (iOS light, dark and tinted, and the Mac sizes)
@@ -89,7 +93,6 @@ Launch arguments: `-demo` (fresh sample notes, not yours), `-open "<title>"`,
 
 ## Not done yet
 
-- iCloud sync (notes are stored on the device for now)
 - Apple Notes import
 - Images and attachments (`attachments/` is reserved for them)
 - Following `[[wiki links]]` between notes

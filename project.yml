@@ -24,18 +24,35 @@ targets:
       - path: BlankNote
         excludes:
           - "*.entitlements"
+          - Info.plist
     dependencies:
       - package: BlankNoteCore
+    postBuildScripts:
+      # Info.plist keys aren't expanded like values, so the iCloud Drive folder's entry is written
+      # under a placeholder key and renamed here to the real container, iCloud.<bundle ID>.
+      - name: Name the iCloud container in Info.plist
+        basedOnDependencyAnalysis: false
+        script: |
+          plist="$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+          placeholder=':NSUbiquitousContainers:iCloud.$(PRODUCT_BUNDLE_IDENTIFIER)'
+          if /usr/libexec/PlistBuddy -c "Print $placeholder" "$plist" >/dev/null 2>&1; then
+            /usr/libexec/PlistBuddy -c "Copy $placeholder :NSUbiquitousContainers:iCloud.$PRODUCT_BUNDLE_IDENTIFIER" \
+              -c "Delete $placeholder" "$plist"
+          fi
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(BUNDLE_ID_PREFIX).blanknote
         PRODUCT_NAME: BlankNote
         CODE_SIGN_STYLE: Automatic
-        # Local Debug builds are ad-hoc signed, so they run without a provisioning profile.
-        # The bundle ID prefix and team come from Config/Signing.xcconfig.
+        # Local Debug builds are ad-hoc signed, so they run without a provisioning profile, and
+        # keep notes on the device. Release builds (TestFlight) add iCloud Drive, which needs a
+        # profile with the iCloud container iCloud.<bundle ID>. The bundle ID prefix and team come
+        # from Config/Signing.xcconfig.
         "CODE_SIGN_IDENTITY[sdk=macosx*]": "-"
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": BlankNote/BlankNote-macOS.entitlements
         GENERATE_INFOPLIST_FILE: YES
+        # Merged into the generated Info.plist: shows the notes as a BlankNote folder in iCloud Drive.
+        INFOPLIST_FILE: BlankNote/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: BlankNote
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
@@ -54,6 +71,10 @@ targets:
         SUPPORTS_MACCATALYST: NO
         ENABLE_PREVIEWS: YES
         ENABLE_HARDENED_RUNTIME: YES
+      configs:
+        Release:
+          "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": BlankNote/BlankNote-macOS-Release.entitlements
+          "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": BlankNote/BlankNote-iOS-Release.entitlements
   BlankNoteUITests:
     type: bundle.ui-testing
     platform: iOS
