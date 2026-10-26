@@ -58,7 +58,8 @@ final class ShortcutsAndToastsUITests: XCTestCase {
         XCTAssertTrue(waitFor { recorder.label.hasSuffix("Type Shortcut…") })
         app.typeKey("j", modifierFlags: [.option, .command])
         XCTAssertTrue(waitFor { recorder.label.hasSuffix("⌥⌘J") }, "recorded: \(recorder.label)")
-        app.buttons["BackButton"].firstMatch.tap()
+        // Settings' own Back (the open note behind the sheet has one too).
+        app.navigationBars["Keyboard Shortcuts"].buttons["BackButton"].tap()
         app.buttons["Done"].firstMatch.tap()
 
         // ⌘N no longer makes a note; ⌥⌘J does.

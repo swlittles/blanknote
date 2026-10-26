@@ -11,6 +11,8 @@ struct RootView: View {
     @Environment(\.openWindow) private var openWindow
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
+    /// iPad: whether the sidebar is showing (`.detailOnly` when it's hidden).
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
     #else
     @Environment(\.controlActiveState) private var controlActiveState
     #endif
@@ -25,19 +27,7 @@ struct RootView: View {
         // Redrawn from scratch in the new colours when the theme changes; the navigator (what's
         // selected, the open note) carries over. Sheets sit outside it so they stay open.
         let themeRevision = ThemeState.shared.revision
-        NavigationSplitView {
-            SidebarView(nav: nav)
-                #if os(macOS)
-                .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 320)
-                #endif
-        } content: {
-            NoteListView(nav: nav)
-                #if os(macOS)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 440)
-                #endif
-        } detail: {
-            EditorPane(nav: nav)
-        }
+        columns
         .id(themeRevision)
         .tint(Palette.accentColor)
         .sheet(isPresented: $nav.showNewProfile) {
@@ -96,7 +86,8 @@ struct RootView: View {
             }
         }
         #if os(iOS)
-        .onChange(of: sizeClass, initial: true) { _, size in nav.isCompact = size == .compact }
+        .onChange(of: sizeClass, initial: true) { updateCompact() }
+        .onChange(of: columnVisibility) { updateCompact() }
         #else
         .onChange(of: controlActiveState, initial: true) { _, state in
             if state == .key { router.activeNavigator = nav }
@@ -108,6 +99,73 @@ struct RootView: View {
         .onDisappear { nav.editor.close() }
         #endif
     }
+
+    @ViewBuilder private var columns: some View {
+        #if os(iOS)
+        if sizeClass == .regular {
+            iPadColumns
+        } else {
+            threeColumns
+        }
+        #else
+        threeColumns
+        #endif
+    }
+
+    /// The Mac, and the iPhone (where it collapses into one stack).
+    private var threeColumns: some View {
+        NavigationSplitView {
+            SidebarView(nav: nav)
+                #if os(macOS)
+                .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 320)
+                #endif
+        } content: {
+            NoteListView(nav: nav)
+                #if os(macOS)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 440)
+                #endif
+        } detail: {
+            EditorPane(nav: nav)
+        }
+    }
+
+    #if os(iOS)
+    /// iPad. Three columns leave too little room for the note, so with the sidebar showing the rest of
+    /// the window works like the iPhone (the list, then the note in its place); with the sidebar hidden
+    /// the list and the note sit side by side.
+    private var iPadColumns: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(nav: nav)
+        } detail: {
+            if columnVisibility == .detailOnly {
+                HStack(spacing: 0) {
+                    NavigationStack { NoteListView(nav: nav) }
+                        .frame(width: 340)
+                    Divider()
+                    NavigationStack { EditorPane(nav: nav) }
+                }
+            } else {
+                NavigationStack(path: openNotePath) {
+                    NoteListView(nav: nav)
+                        .navigationDestination(for: String.self) { _ in EditorPane(nav: nav) }
+                }
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    /// The open note as a navigation path: opening one pushes it, going back closes it.
+    private var openNotePath: Binding<[String]> {
+        Binding(get: { nav.selection.map { [$0] } ?? [] },
+                set: { nav.selection = $0.last })
+    }
+
+    /// One note at a time on screen (iPhone, or iPad with the sidebar showing): after deleting a
+    /// note, go back to the list rather than opening the next one.
+    private func updateCompact() {
+        nav.isCompact = sizeClass == .compact || columnVisibility != .detailOnly
+    }
+    #endif
 
     /// Runs a global hotkey, Siri or Shortcuts request if it's for this window.
     private func handlePendingAction() {

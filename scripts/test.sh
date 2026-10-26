@@ -9,7 +9,7 @@ export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer
 [[ ${1:-} == --unit ]] && exit 0
 xcodegen generate --quiet
 # BlankNote's own simulators: "BlankNote iPhone" runs every UI test; "BlankNote iPad" adds the
-# hardware-keyboard shortcut tests (they skip on iPhone).
+# hardware-keyboard shortcut tests and the iPad layout test (they skip on iPhone).
 sim() {
   local name=$1 type=$2 udid
   udid=$(xcrun simctl list devices available | { grep "$name (" || true; } | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
@@ -28,4 +28,4 @@ run "iPhone" "$(sim "BlankNote iPhone" com.apple.CoreSimulator.SimDeviceType.iPh
 ipad=$(sim "BlankNote iPad" com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB)
 xcrun simctl shutdown "$ipad" 2>/dev/null || true
 run "iPad" "$ipad" \
-  -only-testing:BlankNoteUITests/ShortcutsAndToastsUITests
+  -only-testing:BlankNoteUITests/ShortcutsAndToastsUITests -only-testing:BlankNoteUITests/IPadLayoutUITests
