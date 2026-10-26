@@ -1,3 +1,5 @@
+<p align="center"><img src="BlankNote/Resources/Assets.xcassets/AppIcon.appiconset/mac-128@2x.png" width="128" alt="BlankNote icon"></p>
+
 # BlankNote
 
 A Markdown notes app for Mac, iPad and iPhone. Every note is a plain `.md` file, the
@@ -72,7 +74,8 @@ own bundle ID prefix and team ID.
   "BlankNote iPad" simulators.
 - `scripts/mac_shot.sh out.png -demo -open "API design" -theme dark` takes a Mac screenshot.
 - `scripts/sim_shot.sh iphone|ipad out.png -demo …` takes a simulator screenshot.
-- `swift scripts/render_icon.swift <dir>` renders the app icon.
+- `swift scripts/render_icon.swift` renders the app icon (iOS light, dark and tinted, and the Mac sizes)
+  into the asset catalog.
 
 Launch arguments: `-demo` (fresh sample notes, not yours), `-open "<title>"`,
 `-sidebar all|trash|folder:<path>|tag:<tag>`, `-search "<text>"`, `-theme system|light|dark`,
