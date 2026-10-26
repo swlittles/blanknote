@@ -22,7 +22,9 @@ final class CodeBlockLayoutFragment: NSTextLayoutFragment {
         let frame = layoutFragmentFrame
         let containerWidth = textLayoutManager?.textContainer?.size.width ?? frame.width
         let padding = textLayoutManager?.textContainer?.lineFragmentPadding ?? 0
-        var rect = CGRect(x: padding - frame.minX, y: 0, width: max(0, containerWidth - 2 * padding), height: frame.height)
+        // From the text column's edge (right of the marker gutter) to its end.
+        var rect = CGRect(x: padding + EditorGutter.leading - frame.minX, y: 0,
+                          width: max(0, containerWidth - 2 * padding - EditorGutter.leading - EditorGutter.trailing), height: frame.height)
         // The block's top and bottom margins sit outside the drawn background.
         if position == .first, let style = paragraphStyle { rect.origin.y += style.paragraphSpacingBefore; rect.size.height -= style.paragraphSpacingBefore }
         if position == .last, let style = paragraphStyle { rect.size.height -= style.paragraphSpacing }

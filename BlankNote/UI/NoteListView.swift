@@ -29,6 +29,10 @@ struct NoteListView: View {
         }
         #if os(macOS)
         .listStyle(.plain)
+        #else
+        // Rounded cards on every iPhone and iPad layout (a collapsed split view would otherwise use
+        // full-width rows banded against the section headers).
+        .listStyle(.insetGrouped)
         #endif
         .scrollContentBackground(.hidden)
         .background(Palette.backgroundColor)

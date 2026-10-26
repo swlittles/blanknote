@@ -314,8 +314,9 @@ final class InkTextView: UITextView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        // The text starts at `side`; heading and list markers hang in the gutter to its left.
         let side = max(20, (bounds.width - Self.maxTextWidth) / 2)
-        let inset = UIEdgeInsets(top: 16, left: side, bottom: 60, right: side)
+        let inset = UIEdgeInsets(top: 16, left: max(2, side - EditorGutter.leading), bottom: 60, right: side)
         if textContainerInset != inset { textContainerInset = inset }
     }
 

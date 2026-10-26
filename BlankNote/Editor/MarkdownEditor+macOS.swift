@@ -202,7 +202,8 @@ final class InkTextView: NSTextView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        let side = max(28, (newSize.width - Self.maxTextWidth) / 2)
+        // The text starts at `side`; heading and list markers hang in the gutter to its left.
+        let side = max(28, (newSize.width - Self.maxTextWidth) / 2) - EditorGutter.leading
         if textContainerInset.width != side { textContainerInset = NSSize(width: side, height: 22) }
     }
 

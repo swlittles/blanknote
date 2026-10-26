@@ -55,10 +55,12 @@ final class MarkdownStyler {
         switch style {
         case .title:
             storage.addAttributes([.font: font(size: fontSize * 1.55, weight: .bold), .paragraphStyle: paragraph(after: 0.5)], range: range)
+            hangHeadingMarker(in: range, of: storage)
         case .heading(let level):
             let scale: [CGFloat] = [1.45, 1.28, 1.14, 1.05, 1, 1]
             let size = fontSize * scale[min(max(level, 1), 6) - 1]
             storage.addAttributes([.font: font(size: size, weight: level <= 2 ? .bold : .semibold), .paragraphStyle: paragraph(before: 0.6, after: 0.25)], range: range)
+            hangHeadingMarker(in: range, of: storage)
         case .marker, .fence, .horizontalRule:
             storage.addAttribute(.foregroundColor, value: Palette.tertiaryText, range: range)
         case .bold:
@@ -121,21 +123,52 @@ final class MarkdownStyler {
         if let url = URL(string: text), url.scheme != nil { storage.addAttribute(.link, value: url, range: range) }
     }
 
-    /// Wrapped lines of a list item line up with its text rather than its bullet.
+    /// A list item's bullet (or number, or checkbox) hangs in the gutter, so its text starts at the
+    /// same edge as other lines; wrapped lines line up with the text too. Nested items keep their
+    /// indentation.
     private func hangIndent(after marker: NSRange, in storage: NSTextStorage) {
         let text = storage.string as NSString
         let line = text.paragraphRange(for: marker)
         var end = NSMaxRange(marker)
         while end < NSMaxRange(line), text.character(at: end) == 32 || text.character(at: end) == 9 { end += 1 }
-        let prefix = storage.attributedSubstring(from: NSRange(location: line.location, length: end - line.location))
+        var start = line.location
+        while start < end, text.character(at: start) == 32 || text.character(at: start) == 9 { start += 1 }
+        // Only the bullet or number hangs; a checkbox after it stays at the text's edge.
+        var bulletEnd = start
+        while bulletEnd < end, text.character(at: bulletEnd) != 32, text.character(at: bulletEnd) != 9 { bulletEnd += 1 }
+        while bulletEnd < end, text.character(at: bulletEnd) == 32 || text.character(at: bulletEnd) == 9 { bulletEnd += 1 }
+        hang(line: line, markerStart: start, hangingEnd: bulletEnd, textStart: end, in: storage)
+    }
+
+    /// A heading's `#` marks hang in the gutter at body size, so headings line up with the text.
+    private func hangHeadingMarker(in range: NSRange, of storage: NSTextStorage) {
+        let text = storage.string as NSString
+        let line = text.paragraphRange(for: range)
+        var end = line.location
+        while end < NSMaxRange(line), text.character(at: end) == 35 { end += 1 }   // #
+        guard end > line.location, end - line.location <= 6, end < NSMaxRange(line), text.character(at: end) == 32 else { return }
+        while end < NSMaxRange(line), text.character(at: end) == 32 { end += 1 }
+        storage.addAttribute(.font, value: font(size: fontSize, weight: .semibold), range: NSRange(location: line.location, length: end - line.location))
+        hang(line: line, markerStart: line.location, hangingEnd: end, textStart: end, in: storage)
+    }
+
+    /// Puts `markerStart..<hangingEnd` in the gutter; wrapped lines start where the text does (`textStart`).
+    private func hang(line: NSRange, markerStart: Int, hangingEnd: Int, textStart: Int, in storage: NSTextStorage) {
+        func width(_ from: Int, _ to: Int) -> CGFloat {
+            ceil(storage.attributedSubstring(from: NSRange(location: from, length: to - from)).size().width)
+        }
         let style = (storage.attribute(.paragraphStyle, at: line.location, effectiveRange: nil) as? NSParagraphStyle ?? paragraph())
             .mutableCopy() as! NSMutableParagraphStyle
-        style.headIndent = ceil(prefix.size().width)
+        style.firstLineHeadIndent = max(0, EditorGutter.leading - width(markerStart, hangingEnd))
+        style.headIndent = style.firstLineHeadIndent + width(line.location, textStart)
         storage.addAttribute(.paragraphStyle, value: style, range: line)
     }
 
     private func paragraph(before: CGFloat = 0, after: CGFloat = 0.15) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
+        style.firstLineHeadIndent = EditorGutter.leading
+        style.headIndent = EditorGutter.leading
+        style.tailIndent = -EditorGutter.trailing
         style.lineSpacing = fontSize * 0.22
         style.paragraphSpacingBefore = fontSize * before
         style.paragraphSpacing = fontSize * after
@@ -147,9 +180,9 @@ final class MarkdownStyler {
     private func codeParagraph(_ position: CodeBlockPosition) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.lineSpacing = fontSize * 0.15
-        style.firstLineHeadIndent = CodeBlockLayoutFragment.inset
-        style.headIndent = CodeBlockLayoutFragment.inset
-        style.tailIndent = -CodeBlockLayoutFragment.inset
+        style.firstLineHeadIndent = EditorGutter.leading + CodeBlockLayoutFragment.inset
+        style.headIndent = EditorGutter.leading + CodeBlockLayoutFragment.inset
+        style.tailIndent = -(EditorGutter.trailing + CodeBlockLayoutFragment.inset)
         style.defaultTabInterval = fontSize * 1.6
         style.tabStops = []
         style.paragraphSpacingBefore = position == .first ? fontSize * 0.4 : 0
@@ -214,4 +247,18 @@ extension PlatformFont {
         return UIFont(descriptor: descriptor, size: pointSize)
         #endif
     }
+}
+
+/// Room to the left of the text column where heading and list markers hang, so every line's text
+/// starts at the same edge. The text views shrink their left inset by this much to make room.
+enum EditorGutter {
+    #if os(macOS)
+    static let leading: CGFloat = 28
+    /// NSTextView's insets are the same on both sides, so lines also end this much early to keep the
+    /// right margin where it was.
+    static let trailing: CGFloat = 28
+    #else
+    static let leading: CGFloat = 24
+    static let trailing: CGFloat = 0
+    #endif
 }

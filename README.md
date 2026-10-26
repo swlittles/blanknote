@@ -76,7 +76,8 @@ put in your own bundle ID prefix and team ID.
 - `scripts/build.sh [mac|ios]` generates the project (XcodeGen) and builds.
 - `scripts/test.sh [--unit]` runs the unit tests, then the UI tests on the "BlankNote iPhone" and
   "BlankNote iPad" simulators.
-- `scripts/mac_shot.sh out.png -demo -open "API design" -theme dark` takes a Mac screenshot.
+- `scripts/mac_shot.sh out.png -demo -open "API design" -theme dark` takes a Mac screenshot, using a
+  separate copy (bundle ID `org.example.shot.blanknote`) so it never touches an installed BlankNote.
 - `scripts/sim_shot.sh iphone|ipad out.png -demo …` takes a simulator screenshot.
 - `scripts/testflight.sh [ios|mac|all] [--no-upload]` archives Release builds for iPhone/iPad and
   the Mac and uploads them to TestFlight. It needs your own signing setup: see the comment at the top of the script.
@@ -85,7 +86,7 @@ put in your own bundle ID prefix and team ID.
 - `swift scripts/render_icon.swift` renders the app icon (iOS light, dark and tinted, and the Mac sizes)
   into the asset catalog.
 
-Launch arguments: `-demo` (fresh sample notes, not yours), `-open "<title>"`,
+Launch arguments: `-demo` (fresh sample notes, not yours; add `-manyNotes` for a long list), `-open "<title>"`,
 `-sidebar all|trash|folder:<path>|tag:<tag>`, `-search "<text>"`, `-theme system|light|dark`,
 `-resetShortcuts`, `-profile "<name>"`, and on iPhone/iPad `-settings general|profiles` and
 `-newProfile`. Debug Mac builds also take `-themeSelfTest <file>` and `-shortcutSelfTest <file>`

@@ -15,6 +15,8 @@ enum LaunchOptions {
     private static let arguments = ProcessInfo.processInfo.arguments
 
     static var isDemo: Bool { arguments.contains("-demo") }
+    /// With `-demo`: 40 more notes in Personal, so the list scrolls.
+    static var manyNotes: Bool { arguments.contains("-manyNotes") }
 
     static func value(after flag: String) -> String? {
         guard let index = arguments.firstIndex(of: flag), index + 1 < arguments.count else { return nil }

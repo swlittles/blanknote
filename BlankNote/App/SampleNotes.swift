@@ -121,7 +121,9 @@ enum SampleNotes {
                 A tiny CLI that turns notes into a static site. #ideas
                 """),
         ]
-        for note in notes {
+        // `-demo -manyNotes`: a long list, for checking how the end of the list looks.
+        let filler = LaunchOptions.manyNotes ? (1...40).map { ("Personal/Filler \($0).md", 3600 * 24 * (40.0 + Double($0)), "Filler \($0)\nMore text") } : []
+        for note in notes + filler {
             let url = root.appendingPathComponent(note.path)
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? note.text.write(to: url, atomically: true, encoding: .utf8)
