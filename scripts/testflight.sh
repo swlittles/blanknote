@@ -43,8 +43,8 @@ if [[ ${1:-} == --no-upload ]]; then
   exit 0
 fi
 
-options=build/ExportOptions.plist
-cat > $options <<PLIST
+export_options=build/ExportOptions.plist
+cat > $export_options <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -62,6 +62,6 @@ cat > $options <<PLIST
 </plist>
 PLIST
 echo "Uploading to App Store Connect…"
-xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportOptionsPlist $options \
+xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportOptionsPlist $export_options \
   -exportPath build/export -allowProvisioningUpdates $auth | grep -E "error:|Upload|EXPORT (SUCCEEDED|FAILED)"
 echo "Done. Build $BUILD_NUMBER shows up in App Store Connect › TestFlight after processing (usually 5–30 min)."
