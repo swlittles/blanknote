@@ -200,7 +200,8 @@ public enum MarkdownHighlighter {
         emphasis(MarkdownPatterns.italicStar, markerLength: 1, style: .italic)
         emphasis(MarkdownPatterns.italicUnderscore, markerLength: 1, style: .italic)
         emphasis(MarkdownPatterns.strikethrough, markerLength: 2, style: .strikethrough)
-        for match in MarkdownPatterns.tag.matches(in: line, range: full) where isFree(match.range) {
+        for match in MarkdownPatterns.tag.matches(in: line, range: full) where isFree(match.range)
+            && !MarkdownPatterns.isColour((line as NSString).substring(with: match.range(at: 1))) {
             add(match.range, .tag)
         }
         return spans

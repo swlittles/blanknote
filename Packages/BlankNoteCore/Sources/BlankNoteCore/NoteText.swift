@@ -52,6 +52,7 @@ public enum NoteText {
             for match in MarkdownPatterns.tag.matches(in: text as String, range: NSRange(location: 0, length: text.length)) {
                 guard !codeRanges.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { continue }
                 let tag = text.substring(with: match.range(at: 1))
+                guard !MarkdownPatterns.isColour(tag) else { continue }
                 if seen.insert(tag.lowercased()).inserted { tags.append(tag) }
             }
         }
@@ -117,6 +118,19 @@ enum MarkdownPatterns {
 
     /// `#tag`, `#tag/subtag`. Not `#123`, `C#`, `url/#anchor`, or `&#38;`.
     static let tag = regex(#"(?<![\p{L}\p{N}_#/&;])#((?=[\p{N}_\-/]*\p{L})[\p{L}\p{N}_][\p{L}\p{N}_\-/]*[\p{L}\p{N}_])"#)
+
+    /// Hex colours written with a `#` (`#D97757`, `#0f0`, `#fff`) look like tags but aren't. Six or eight
+    /// hex digits always count as a colour; three or four only with a digit or all the same letter, so
+    /// words such as `#cafe`, `#add` and `#bad` stay tags.
+    static func isColour(_ tag: String) -> Bool {
+        let hex = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
+        guard tag.unicodeScalars.allSatisfy(hex.contains) else { return false }
+        switch tag.count {
+        case 6, 8: return true
+        case 3, 4: return tag.contains(where: \.isNumber) || Set(tag.lowercased()).count == 1
+        default: return false
+        }
+    }
     static let inlineCode = regex(#"(`+)(?!`)(.+?)(?<!`)\1(?!`)"#)
     /// `[text](url)` and `![alt](url)`. Group 1: optional `!`, 2: text, 3: url.
     static let link = regex(#"(!?)\[([^\]\n]*)\]\(([^)\s]+)(?:\s+"[^"\n]*")?\)"#)

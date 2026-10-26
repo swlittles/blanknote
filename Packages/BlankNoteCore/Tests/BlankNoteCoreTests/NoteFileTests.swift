@@ -114,6 +114,11 @@ struct NoteTextTests {
         #expect(NoteText.fileName(for: String(repeating: "a", count: 200)).count == 80)
     }
 
+    @Test func hexColoursAreNotTags() {
+        let body = "Brand: #D97757 on #262624, links #0f0, borders #fff and #EEEE, shadow #00000080.\n#cafe #add #bad #ideas"
+        #expect(NoteText.inlineTags(in: body) == ["cafe", "add", "bad", "ideas"])
+    }
+
     @Test func summaryMergesFrontMatterAndInlineTags() {
         let file = NoteFile(contents: "---\ntags: [Work]\npinned: yes\n---\n# Plan\nSee #work and #ideas")
         let summary = NoteSummary(path: "Work/Plan.md", file: file, created: .now, modified: .now)

@@ -6,7 +6,9 @@ import SQLite3
 /// It is never synced and can always be rebuilt from the files: at launch the store shows the
 /// cached summaries straight away, then re-reads only the files whose modification date changed.
 public actor SearchIndex {
-    private static let schemaVersion: Int32 = 1
+    /// Bump when the tables or how summaries are derived (titles, tags) change: the cache is rebuilt.
+    /// 2: hex colours are no longer tags.
+    private static let schemaVersion: Int32 = 2
     private let db: OpaquePointer
 
     /// `rootIdentity` names the notes folder this cache describes. If it changes (say the notes
