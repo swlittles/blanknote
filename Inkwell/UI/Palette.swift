@@ -73,6 +73,12 @@ extension PlatformColor {
 enum Appearance: String, CaseIterable, Identifiable {
     case system, light, dark
 
+    /// The settings key. It must not match a launch flag (`-theme`): a launch argument with a
+    /// setting's own name overrides that setting for the whole run, so the picker would do nothing.
+    /// (Not "appearance" either: values saved under that old key shouldn't override the new default.)
+    static let storageKey = "colorTheme"
+    static let defaultValue = Appearance.dark
+
     var id: String { rawValue }
 
     var title: String {
@@ -83,11 +89,27 @@ enum Appearance: String, CaseIterable, Identifiable {
         }
     }
 
-    var colorScheme: ColorScheme? {
-        switch self {
+    /// Applies the theme to every window of the app, Settings included.
+    ///
+    /// Done through AppKit/UIKit rather than SwiftUI's `preferredColorScheme`, which on the Mac
+    /// doesn't go back to following the system once it has been set to light or dark.
+    @MainActor
+    func apply() {
+        #if os(macOS)
+        NSApp.appearance = switch self {
         case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+        #else
+        let style: UIUserInterfaceStyle = switch self {
+        case .system: .unspecified
         case .light: .light
         case .dark: .dark
         }
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            for window in scene.windows { window.overrideUserInterfaceStyle = style }
+        }
+        #endif
     }
 }

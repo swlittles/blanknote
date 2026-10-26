@@ -3,7 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
     let store: NoteStore
-    @AppStorage("appearance") private var appearance = Appearance.system
+    @AppStorage(Appearance.storageKey) private var appearance = Appearance.defaultValue
     @AppStorage("editorFontSize") private var fontSize = EditorDefaults.fontSize
     @State private var rebuilding = false
 
@@ -13,6 +13,7 @@ struct SettingsView: View {
                 Picker("Theme", selection: $appearance) {
                     ForEach(Appearance.allCases) { Text($0.title).tag($0) }
                 }
+                .accessibilityIdentifier("themePicker")
                 Stepper(value: $fontSize, in: 12...26, step: 1) {
                     LabeledContent("Text Size", value: "\(Int(fontSize)) pt")
                 }

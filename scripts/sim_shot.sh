@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Installs the simulator build on Inkwell's own simulators and screenshots it.
 #   scripts/sim_shot.sh iphone|ipad out.png [launch args…]
-# Example: scripts/sim_shot.sh iphone build/phone.png -demo -open "API design" -appearance dark
+# Example: scripts/sim_shot.sh iphone build/phone.png -demo -open "API design" -theme dark
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}

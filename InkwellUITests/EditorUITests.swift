@@ -9,7 +9,7 @@ final class EditorUITests: XCTestCase {
 
     private func launch(_ arguments: [String]) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-demo", "-appearance", "light"] + arguments
+        app.launchArguments = ["-demo", "-theme", "light"] + arguments
         app.launch()
         return app
     }

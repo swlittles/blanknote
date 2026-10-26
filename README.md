@@ -27,12 +27,12 @@ editor styles Markdown as you type, and the theme uses Claude Code's colours in 
 
 - `scripts/build.sh [mac|ios]` generates the project (XcodeGen) and builds.
 - `scripts/test.sh [--unit]` runs the unit tests, then the UI tests on the "Inkwell iPhone" simulator.
-- `scripts/mac_shot.sh out.png -demo -open "API design" -appearance dark` takes a Mac screenshot.
+- `scripts/mac_shot.sh out.png -demo -open "API design" -theme dark` takes a Mac screenshot.
 - `scripts/sim_shot.sh iphone|ipad out.png -demo …` takes a simulator screenshot.
 - `swift scripts/render_icon.swift <dir>` renders the app icon.
 
 Launch arguments: `-demo` (fresh sample notes, not yours), `-open "<title>"`,
-`-sidebar all|trash|folder:<path>|tag:<tag>`, `-search "<text>"`, `-appearance light|dark`.
+`-sidebar all|trash|folder:<path>|tag:<tag>`, `-search "<text>"`, `-theme system|light|dark`.
 
 ## Not done yet
 

@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Launches the Mac build with launch arguments and screenshots its window.
-#   scripts/mac_shot.sh out.png -demo -open "API design" -appearance dark
+#   scripts/mac_shot.sh out.png -demo -open "API design" -theme dark
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$1; shift

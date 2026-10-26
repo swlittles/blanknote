@@ -4,13 +4,24 @@ import SwiftUI
 @main
 struct InkwellApp: App {
     @State private var store = NoteStore(options: LaunchOptions.storeOptions)
-    @AppStorage("appearance") private var appearance = Appearance.system
+    @AppStorage(Appearance.storageKey) private var appearance = Appearance.defaultValue
+
+    init() {
+        LaunchOptions.applyTheme()
+    }
 
     var body: some Scene {
         WindowGroup {
             RootView(store: store)
-                .preferredColorScheme(appearance.colorScheme)
                 .tint(Palette.accentColor)
+                // Also on every new window (iPad scenes start with the system style).
+                .onAppear {
+                    appearance.apply()
+                    #if DEBUG && os(macOS)
+                    LaunchOptions.runThemeSelfTest()
+                    #endif
+                }
+                .onChange(of: appearance) { appearance.apply() }
         }
         .commands { InkwellCommands() }
         #if os(macOS)
@@ -20,7 +31,6 @@ struct InkwellApp: App {
         #if os(macOS)
         Settings {
             SettingsView(store: store)
-                .preferredColorScheme(appearance.colorScheme)
                 .tint(Palette.accentColor)
         }
         #endif
