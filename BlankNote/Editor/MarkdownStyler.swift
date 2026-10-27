@@ -10,11 +10,22 @@ extension NSAttributedString.Key {
     /// Marks the lines of a fenced code block (value: `CodeBlockPosition.rawValue`), so
     /// `CodeBlockLayoutFragment` can draw the block's background.
     static let blankNoteCodeBlock = NSAttributedString.Key("BlankNoteCodeBlock")
+    /// Text mode: something to draw in place of hidden syntax (value: `MarkupOverlay.rawValue`), drawn
+    /// by `MarkupLayoutFragment`.
+    static let blankNoteOverlay = NSAttributedString.Key("BlankNoteOverlay")
+}
+
+/// What text mode draws over hidden Markdown.
+enum MarkupOverlay: String {
+    case bullet, box, checkedBox, quote, rule
 }
 
 /// Turns `MarkdownHighlighter`'s ranges into fonts, colours and paragraph styles in the text view's
 /// storage. It only touches attributes, never characters, so typing and undo are unaffected.
 final class MarkdownStyler {
+    /// Text mode (the default): hide the syntax and draw bullets, checkboxes, quotes and rules
+    /// instead. Off for notes edited as Markdown.
+    var hidesMarkup = true
     var fontSize: CGFloat {
         didSet { if fontSize != oldValue { fonts.removeAll() } }
     }
@@ -55,14 +66,24 @@ final class MarkdownStyler {
         switch style {
         case .title:
             storage.addAttributes([.font: font(size: fontSize * 1.55, weight: .bold), .paragraphStyle: paragraph(after: 0.5)], range: range)
-            hangHeadingMarker(in: range, of: storage)
+            if !hidesMarkup { hangHeadingMarker(in: range, of: storage) }
         case .heading(let level):
             let scale: [CGFloat] = [1.45, 1.28, 1.14, 1.05, 1, 1]
             let size = fontSize * scale[min(max(level, 1), 6) - 1]
             storage.addAttributes([.font: font(size: size, weight: level <= 2 ? .bold : .semibold), .paragraphStyle: paragraph(before: 0.6, after: 0.25)], range: range)
-            hangHeadingMarker(in: range, of: storage)
-        case .marker, .fence, .horizontalRule:
-            storage.addAttribute(.foregroundColor, value: Palette.tertiaryText, range: range)
+            if !hidesMarkup { hangHeadingMarker(in: range, of: storage) }
+        case .marker, .fence:
+            if hidesMarkup {
+                hide(range, in: storage)
+            } else {
+                storage.addAttribute(.foregroundColor, value: Palette.tertiaryText, range: range)
+            }
+        case .horizontalRule:
+            if hidesMarkup {
+                storage.addAttributes([.foregroundColor: PlatformColor.clear, .blankNoteOverlay: MarkupOverlay.rule.rawValue], range: range)
+            } else {
+                storage.addAttribute(.foregroundColor, value: Palette.tertiaryText, range: range)
+            }
         case .bold:
             addTraits(bold: true, italic: false, in: range, of: storage)
         case .italic:
@@ -87,6 +108,7 @@ final class MarkdownStyler {
         case .quote:
             storage.addAttribute(.foregroundColor, value: Palette.secondaryText, range: range)
             addTraits(bold: false, italic: true, in: range, of: storage)
+            if hidesMarkup { storage.addAttribute(.blankNoteOverlay, value: MarkupOverlay.quote.rawValue, range: range) }
         case .link:
             storage.addAttribute(.foregroundColor, value: Palette.accentText, range: range)
         case .linkDestination:
@@ -99,9 +121,20 @@ final class MarkdownStyler {
             storage.addAttributes([.foregroundColor: Palette.accentText, .backgroundColor: Palette.tagBackground], range: range)
         case .listMarker:
             storage.addAttribute(.foregroundColor, value: Palette.accent, range: range)
+            if hidesMarkup, Self.isBullet(range, in: storage.string as NSString) {
+                // A bullet draws as a dot; a checklist item shows only its checkbox.
+                storage.addAttribute(.foregroundColor, value: PlatformColor.clear, range: range)
+                if !Self.isTask(after: range, in: storage.string as NSString) {
+                    storage.addAttribute(.blankNoteOverlay, value: MarkupOverlay.bullet.rawValue, range: range)
+                }
+            }
             hangIndent(after: range, in: storage)
         case .taskBox(let checked):
             storage.addAttributes([.foregroundColor: checked ? Palette.green : Palette.accent, .font: monoFont(weight: .bold)], range: range)
+            if hidesMarkup {
+                storage.addAttributes([.foregroundColor: PlatformColor.clear,
+                                       .blankNoteOverlay: (checked ? MarkupOverlay.checkedBox : .box).rawValue], range: range)
+            }
             hangIndent(after: range, in: storage)
         case .completedTask:
             storage.addAttributes([.foregroundColor: Palette.secondaryText, .strikethroughStyle: NSUnderlineStyle.single.rawValue], range: range)
@@ -109,6 +142,30 @@ final class MarkdownStyler {
     }
 
     // MARK: Attributes
+
+    /// Text mode: syntax takes no room and can't be seen (it's still in the text, and saved).
+    private func hide(_ range: NSRange, in storage: NSTextStorage) {
+        let text = storage.string as NSString
+        var range = range
+        // Never the line break: it would merge the line with the next one on screen.
+        while range.length > 0, let scalar = UnicodeScalar(text.character(at: NSMaxRange(range) - 1)),
+              CharacterSet.newlines.contains(scalar) { range.length -= 1 }
+        guard range.length > 0 else { return }
+        storage.addAttributes([.font: font(size: 0.01), .foregroundColor: PlatformColor.clear, .kern: 0], range: range)
+    }
+
+    private static func isBullet(_ marker: NSRange, in text: NSString) -> Bool {
+        guard marker.length == 1 else { return false }
+        return ["-", "*", "+"].contains(text.substring(with: marker))
+    }
+
+    private static func isTask(after marker: NSRange, in text: NSString) -> Bool {
+        var index = NSMaxRange(marker)
+        while index < text.length, text.character(at: index) == 32 || text.character(at: index) == 9 { index += 1 }
+        guard index + 3 <= text.length else { return false }
+        let box = text.substring(with: NSRange(location: index, length: 3)).lowercased()
+        return box == "[ ]" || box == "[x]"
+    }
 
     private func addTraits(bold: Bool, italic: Bool, in range: NSRange, of storage: NSTextStorage) {
         storage.enumerateAttribute(.font, in: range) { value, subrange, _ in

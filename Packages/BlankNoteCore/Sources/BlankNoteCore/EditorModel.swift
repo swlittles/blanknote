@@ -23,6 +23,8 @@ public final class EditorModel {
     /// `takeFocusRequest()` once it has focused, however many times its view is recreated meanwhile.
     public private(set) var wantsFocus = false
     public private(set) var isDirty = false
+    /// The open note is edited as Markdown, with its syntax showing, instead of in text mode.
+    public private(set) var showsMarkdown = false
 
     /// Called when saving renamed the file, with the new path.
     @ObservationIgnored public var onPathChange: ((String) -> Void)?
@@ -74,6 +76,14 @@ public final class EditorModel {
         try? store.deleteNotePermanently(path)
     }
 
+    /// Switches the open note between text mode and Markdown editing, saving the choice in its file.
+    public func setShowsMarkdown(_ on: Bool) throws {
+        guard let path, !isReadOnly, on != showsMarkdown else { return }
+        flush()
+        try store.setMarkdownEditing(on, for: self.path ?? path)
+        showsMarkdown = on
+    }
+
     /// Returns true (once) if the editor should take focus now.
     public func takeFocusRequest() -> Bool {
         guard wantsFocus else { return false }
@@ -110,6 +120,7 @@ public final class EditorModel {
               let file = try? store.readNote(path) else { return false }
         knownModified = summary.modified
         knownBody = file.body
+        showsMarkdown = NoteStore.editsAsMarkdown(file)
         guard file.body != text else { return false }
         text = file.body
         revisionIsReload = true
@@ -120,8 +131,10 @@ public final class EditorModel {
     private func load() {
         saveTask?.cancel()
         isDirty = false
+        showsMarkdown = false
         if let path, let file = try? store.readNote(path) {
             text = file.body
+            showsMarkdown = NoteStore.editsAsMarkdown(file)
             knownBody = file.body
             knownModified = store.summary(for: path)?.modified
         } else {

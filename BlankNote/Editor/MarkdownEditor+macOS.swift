@@ -33,6 +33,10 @@ struct MarkdownEditor: NSViewRepresentable {
         private let styler: MarkdownStyler
         private weak var textView: InkTextView?
         private var revision = -1
+        private var applyingEdit = false
+        /// Text mode: the cursor's last place, to tell which way it moved, and a guard while moving it.
+        private var lastCaret = 0
+        private var snappingCaret = false
 
         init(model: EditorModel, fontSize: CGFloat) {
             self.model = model
@@ -82,6 +86,15 @@ struct MarkdownEditor: NSViewRepresentable {
                 storage.beginEditing()
                 styler.restyle(storage, edited: nil)
                 storage.endEditing()
+            }
+            if styler.hidesMarkup == model.showsMarkdown {
+                // Text mode or Markdown editing: set before a new note's text arrives, which styles it.
+                styler.hidesMarkup = !model.showsMarkdown
+                if model.revision == revision {
+                    storage.beginEditing()
+                    styler.restyle(storage, edited: nil)
+                    storage.endEditing()
+                }
             }
             if model.revision != revision {
                 // A reload of the note on screen keeps the cursor and scroll position; so does a
@@ -146,13 +159,31 @@ struct MarkdownEditor: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView else { return }
-            model.selection = textView.selectedRange()
+            var selection = textView.selectedRange()
+            if styler.hidesMarkup, !snappingCaret, selection.length == 0 {
+                let caret = TextMode.caret(selection.location, from: lastCaret, in: textView.string)
+                if caret != selection.location {
+                    snappingCaret = true
+                    textView.setSelectedRange(NSRange(location: caret, length: 0))
+                    snappingCaret = false
+                    selection = textView.selectedRange()
+                }
+            }
+            lastCaret = selection.location
+            model.selection = selection
         }
 
         func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString text: String?) -> Bool {
-            guard let text, let lines = MarkdownEditing.withPlainLineBreaks(text) else { return true }
-            apply(TextEdit(range: range, replacement: lines, selection: NSRange(location: range.location + (lines as NSString).length, length: 0)))
-            return false
+            guard !applyingEdit, let text else { return true }
+            if let lines = MarkdownEditing.withPlainLineBreaks(text) {
+                apply(TextEdit(range: range, replacement: lines, selection: NSRange(location: range.location + (lines as NSString).length, length: 0)))
+                return false
+            }
+            if styler.hidesMarkup, let edit = TextMode.edit(replacing: range, with: text, selection: textView.selectedRange(), in: textView.string) {
+                apply(edit)
+                return false
+            }
+            return true
         }
 
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
@@ -177,6 +208,8 @@ struct MarkdownEditor: NSViewRepresentable {
 
         /// Applies an edit the way typing does, so it can be undone.
         private func apply(_ edit: TextEdit) {
+            applyingEdit = true
+            defer { applyingEdit = false }
             guard let textView, let storage = textView.textStorage,
                   textView.shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return }
             storage.replaceCharacters(in: edit.range, with: edit.replacement)

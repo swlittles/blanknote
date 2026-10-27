@@ -87,6 +87,10 @@ struct EditorPane: View {
             }
             ToolbarItem {
                 Menu {
+                    Toggle(isOn: Binding(get: { nav.editor.showsMarkdown }, set: { _ in nav.toggleMarkdownEditing() })) {
+                        Label("Edit as Markdown", systemImage: "number")
+                    }
+                    Divider()
                     MoveMenu(nav: nav, path: note.path)
                     Button("Copy Markdown", systemImage: "doc.on.doc") { nav.copyOpenNote() }
                     #if os(macOS)

@@ -80,6 +80,9 @@ final class CodeBlockLayoutFragment: NSTextLayoutFragment {
             fragment.position = position
             return fragment
         }
+        if let paragraph = textElement as? NSTextParagraph, MarkupLayoutFragment.hasOverlay(paragraph.attributedString) {
+            return MarkupLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        }
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
     }
 }

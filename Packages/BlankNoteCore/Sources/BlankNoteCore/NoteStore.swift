@@ -425,6 +425,21 @@ public final class NoteStore {
         try write(file, to: path, replacing: path)
     }
 
+    /// Front matter key recording that a note is edited as Markdown (`editor: markdown`) rather than
+    /// in text mode, the default. It's in the file, so the choice follows the note to every device.
+    public static let editorKey = "editor"
+
+    public func setMarkdownEditing(_ on: Bool, for path: String) throws {
+        var file = try readNote(path)
+        guard Self.editsAsMarkdown(file) != on else { return }
+        file.frontMatter.set(Self.editorKey, on ? "markdown" : nil)
+        try write(file, to: path, replacing: path)
+    }
+
+    public static func editsAsMarkdown(_ file: NoteFile) -> Bool {
+        file.frontMatter.value(editorKey)?.lowercased() == "markdown"
+    }
+
     /// Moves a note into `folder` (`""` is the top level) and returns its new path.
     @discardableResult
     public func moveNote(_ path: String, to folder: String) throws -> String {

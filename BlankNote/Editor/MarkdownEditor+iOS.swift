@@ -31,6 +31,9 @@ struct MarkdownEditor: UIViewRepresentable {
         private weak var textView: InkTextView?
         private var revision = -1
         private var applyingEdit = false
+        /// Text mode: the cursor's last place, to tell which way it moved, and a guard while moving it.
+        private var lastCaret = 0
+        private var snappingCaret = false
 
         init(model: EditorModel, fontSize: CGFloat) {
             self.model = model
@@ -66,6 +69,11 @@ struct MarkdownEditor: UIViewRepresentable {
                 styler.fontSize = fontSize
                 textView.typingAttributes = styler.baseAttributes
                 styler.restyle(textView.textStorage, edited: nil)
+            }
+            if styler.hidesMarkup == model.showsMarkdown {
+                // Text mode or Markdown editing: set before a new note's text arrives, which styles it.
+                styler.hidesMarkup = !model.showsMarkdown
+                if model.revision == revision { styler.restyle(textView.textStorage, edited: nil) }
             }
             if model.revision != revision {
                 // A reload of the note on screen keeps the cursor and scroll position; so does a
@@ -120,7 +128,18 @@ struct MarkdownEditor: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
-            model.selection = textView.selectedRange
+            var selection = textView.selectedRange
+            if styler.hidesMarkup, !snappingCaret, selection.length == 0 {
+                let caret = TextMode.caret(selection.location, from: lastCaret, in: textView.text)
+                if caret != selection.location {
+                    snappingCaret = true
+                    textView.selectedRange = NSRange(location: caret, length: 0)
+                    snappingCaret = false
+                    selection = textView.selectedRange
+                }
+            }
+            lastCaret = selection.location
+            model.selection = selection
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -138,6 +157,10 @@ struct MarkdownEditor: UIViewRepresentable {
                 return false
             }
             if text == "\t", let edit = MarkdownEditing.indent(in: textView.text, selection: range, outdent: false, listsOnly: true) {
+                apply(edit)
+                return false
+            }
+            if styler.hidesMarkup, let edit = TextMode.edit(replacing: range, with: text, selection: textView.selectedRange, in: textView.text) {
                 apply(edit)
                 return false
             }

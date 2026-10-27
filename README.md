@@ -5,6 +5,17 @@
 A Markdown notes app for Mac, iPad and iPhone. Every note is a plain `.md` file, the
 editor styles Markdown as you type, and the theme uses Claude Code's colours in light and dark.
 
+## Editing
+
+- Notes open in **text mode**: formatting shows as formatting (bold, headings, links, bullets, round
+  checkboxes, quotes) and the Markdown syntax is hidden, so it reads like a plain notes app. The
+  file is still Markdown, unchanged: the syntax is only hidden on screen. The formatting bar,
+  the Format menu and the shortcuts add the Markdown for you, and typing Markdown works too.
+- **Edit as Markdown** (the note's ••• menu, Note › Edit as Markdown, ⌃⌘M) shows the syntax for that
+  note. The choice is saved in the note's front matter (`editor: markdown`), so it applies on every
+  device. Code: `TextMode` in BlankNoteCore (cursor and delete rules around hidden syntax),
+  `MarkdownStyler.hidesMarkup` and `MarkupLayoutFragment` in the app.
+
 ## Storage
 
 - Notes are files in the notes container, one folder per profile: the app's iCloud Drive folder
@@ -14,7 +25,7 @@ editor styles Markdown as you type, and the theme uses Claude Code's colours in 
   Settings shows which one is in use.
   Folders in the app are real folders. Recently Deleted is a hidden `.trash/` folder, emptied after 30 days.
 - The first line of a note is its title, and the file is renamed to match.
-- Optional YAML front matter holds `pinned`, `tags` and the trash bookkeeping. Keys BlankNote
+- Optional YAML front matter holds `pinned`, `tags`, `editor: markdown` and the trash bookkeeping. Keys BlankNote
   doesn't know about are kept as they are. Tags also come from `#tags` in the text.
 - Each device keeps a SQLite full-text index per profile in Caches (`Index/<profile id>.sqlite`). It's a cache:
   Settings › Rebuild Search Index recreates it from the files.

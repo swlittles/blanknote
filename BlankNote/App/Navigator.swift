@@ -380,6 +380,18 @@ final class Navigator {
 
     /// Keeps the selection valid after the notes changed: follows a note or folder another window
     /// moved or renamed, and lets go of one that's gone.
+    /// Switches the open note between text mode and Markdown editing.
+    func toggleMarkdownEditing() {
+        guard editor.path != nil, !editor.isReadOnly else { return }
+        let on = !editor.showsMarkdown
+        do {
+            try editor.setShowsMarkdown(on)
+            toasts.show(on ? "Editing as Markdown" : "Editing as text", systemImage: on ? "number" : "textformat")
+        } catch {
+            toasts.show("Couldn't change how this note is edited: \(error.localizedDescription)", systemImage: "exclamationmark.triangle.fill", style: .error)
+        }
+    }
+
     /// Sync Now (menu, ⌘R, the Mac toolbar, pull to refresh on iPhone and iPad).
     func syncNow() async {
         let status = await store.syncNow()

@@ -91,6 +91,7 @@ struct BlankNoteCommands: Commands {
             item(.syncNow) { nav in Task { await nav.syncNow() } }
             Divider()
             item(.togglePin, title: navigator?.openNote?.pinned == true ? "Unpin Note" : "Pin Note") { $0.togglePinOpenNote() }
+            item(.toggleMarkdown, title: navigator?.editor.showsMarkdown == true ? "Edit as Text" : "Edit as Markdown") { $0.toggleMarkdownEditing() }
             item(.copyMarkdown) { $0.copyOpenNote() }
             #if os(macOS)
             item(.showInFinder) { $0.showOpenNoteInFinder() }
