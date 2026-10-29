@@ -9,11 +9,46 @@ import BlankNoteCore
 ///   does) and records what the windows show after each.
 /// - `-shortcutSelfTest <file>`: presses shortcuts (through normal event dispatch) before and after
 ///   shortcut, records it again, then lists which global hotkeys registered.
+/// - `-typingSelfTest <file>`: types at the end of the open note's title, pausing after each letter
+///   for the autosave (which renames the file), and records where the cursor and the text went.
 @MainActor
 enum DebugSelfTests {
     static func run(shortcuts: ShortcutStore) {
         if let path = LaunchOptions.value(after: "-themeSelfTest") { theme(writingTo: path) }
         if let path = LaunchOptions.value(after: "-shortcutSelfTest") { shortcutsTest(shortcuts, writingTo: path) }
+        if let path = LaunchOptions.value(after: "-typingSelfTest") { typing(writingTo: path) }
+    }
+
+    private static func typing(writingTo path: String) {
+        Task {
+            var lines: [String] = []
+            try? await Task.sleep(for: .seconds(1.5))
+            func editor(_ view: NSView?) -> InkTextView? {
+                guard let view else { return nil }
+                if let text = view as? InkTextView { return text }
+                return view.subviews.lazy.compactMap(editor).first
+            }
+            guard let window = NSApp.windows.first(where: { $0.isVisible && editor($0.contentView) != nil }),
+                  let view = editor(window.contentView) else {
+                try? "no editor".write(toFile: path, atomically: true, encoding: .utf8)
+                return
+            }
+            window.makeFirstResponder(view)
+            let titleEnd = (view.string as NSString).lineRange(for: NSRange(location: 0, length: 0)).length - 1
+            view.setSelectedRange(NSRange(location: titleEnd, length: 0))
+            for letter in ["s", "!", "x"] {
+                view.insertText(letter, replacementRange: view.selectedRange())
+                try? await Task.sleep(for: .seconds(1.2))
+                lines.append("title: cursor \(view.selectedRange().location), focused \(window.firstResponder === view), \(view.string.components(separatedBy: "\n")[0])")
+            }
+            // Partway through the third line ("Lisbon in spring" in the demo notes).
+            let lineStarts = view.string.utf16.indices.filter { view.string.utf16[$0] == 10 }.map { view.string.utf16.distance(from: view.string.utf16.startIndex, to: $0) + 1 }
+            let middle = lineStarts.count > 2 ? lineStarts[2] + 5 : 0
+            view.setSelectedRange(NSRange(location: middle, length: 0))
+            view.insertText("Q", replacementRange: view.selectedRange())
+            lines.append("mid-line: typed at \(middle), cursor now \(view.selectedRange().location)")
+            try? lines.joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
+        }
     }
 
     private static func theme(writingTo path: String) {

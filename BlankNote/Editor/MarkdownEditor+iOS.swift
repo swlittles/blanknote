@@ -333,7 +333,15 @@ final class InkTextView: UITextView {
     var onFormat: ((FormatAction) -> Void)?
     var isCheckbox: ((CGPoint) -> Bool)?
     let checkboxTap = UITapGestureRecognizer()
+    private lazy var checkboxTapFilter = CheckboxTapFilter(view: self)
     static let maxTextWidth: CGFloat = 720
+
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        super.init(frame: frame, textContainer: textContainer)
+        checkboxTap.delegate = checkboxTapFilter
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -345,10 +353,21 @@ final class InkTextView: UITextView {
 
     /// Taps on a checkbox toggle it instead of moving the cursor (or bringing up the keyboard).
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
-        let onCheckbox = isCheckbox?(gesture.location(in: self)) ?? false
-        if gesture === checkboxTap { return onCheckbox }
-        if gesture is UITapGestureRecognizer, onCheckbox { return false }
+        if gesture !== checkboxTap, gesture is UITapGestureRecognizer, isCheckbox?(gesture.location(in: self)) == true { return false }
         return super.gestureRecognizerShouldBegin(gesture)
+    }
+
+    /// Gives the checkbox recognizer only the touches that land on a checkbox. Seeing every touch, it
+    /// held up the text view's own tap, so tapping into a note's text didn't start editing there.
+    private final class CheckboxTapFilter: NSObject, UIGestureRecognizerDelegate {
+        weak var view: InkTextView?
+
+        init(view: InkTextView) { self.view = view }
+
+        func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard let view else { return false }
+            return view.isCheckbox?(touch.location(in: view)) ?? false
+        }
     }
 
     @objc func performFormatCommand(_ sender: Any?) {

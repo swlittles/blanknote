@@ -46,6 +46,11 @@ struct EditorPane: View {
             } else {
                 ContentUnavailableView("No Note Selected", systemImage: "square.and.pencil",
                                        description: Text("Pick a note, or press ⌘N to start a new one."))
+                    #if os(macOS)
+                    // The note's buttons stay, dimmed, as in Apple Notes. Without them the note list's
+                    // New Note and Sync buttons drift across to the far side of the window.
+                    .toolbar { placeholderToolbar }
+                    #endif
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -69,6 +74,15 @@ struct EditorPane: View {
         .padding(.vertical, 8)
         .background(Palette.sidebarColor)
     }
+
+    #if os(macOS)
+    @ToolbarContentBuilder
+    private var placeholderToolbar: some ToolbarContent {
+        ToolbarItem { Button("Pin", systemImage: "pin") {}.disabled(true) }
+        ToolbarItem { Button("Share", systemImage: "square.and.arrow.up") {}.disabled(true) }
+        ToolbarItem { Button("More", systemImage: "ellipsis.circle") {}.disabled(true) }
+    }
+    #endif
 
     @ToolbarContentBuilder
     private func toolbar(for note: NoteSummary) -> some ToolbarContent {

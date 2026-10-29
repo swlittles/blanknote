@@ -37,6 +37,10 @@ struct MarkdownEditor: NSViewRepresentable {
         /// Text mode: the cursor's last place, to tell which way it moved, and a guard while moving it.
         private var lastCaret = 0
         private var snappingCaret = false
+        /// Text changed since it was last styled. It's styled just after each edit rather than during
+        /// it: TextKit 2 moves the cursor to the end of everything an edit touched, so restyling the
+        /// line (or the whole note, for a title) as part of the edit took the cursor there too.
+        private var unstyled: NSRange?
 
         init(model: EditorModel, fontSize: CGFloat) {
             self.model = model
@@ -105,6 +109,7 @@ struct MarkdownEditor: NSViewRepresentable {
                 let selection = keepsPlace ? textView.selectedRange() : model.selection
                 let offset = keepsPlace ? Double(textView.enclosingScrollView?.contentView.bounds.origin.y ?? 0) : model.scrollOffset
                 storage.setAttributedString(NSAttributedString(string: model.text, attributes: styler.baseAttributes))
+                styleEdits()
                 textView.setSelectedRange(Self.clamp(selection, to: storage.length))
                 textView.undoManager?.removeAllActions()
                 if offset > 0 {
@@ -132,8 +137,20 @@ struct MarkdownEditor: NSViewRepresentable {
         nonisolated func textStorage(_ textStorage: NSTextStorage, willProcessEditing editedMask: NSTextStorageEditActions, range editedRange: NSRange, changeInLength delta: Int) {
             guard editedMask.contains(.editedCharacters) else { return }
             MainActor.assumeIsolated {
-                styler.restyle(textStorage, edited: editedRange)
+                unstyled = unstyled.map { NSUnionRange($0, editedRange) } ?? editedRange
+                // Typing styles in `textDidChange`; this catches any other edit.
+                DispatchQueue.main.async { [weak self] in self?.styleEdits() }
             }
+        }
+
+        private func styleEdits() {
+            guard let range = unstyled, let textView, let storage = textView.textStorage else { return }
+            unstyled = nil
+            let selection = textView.selectedRanges
+            storage.beginEditing()
+            styler.restyle(storage, edited: range)
+            storage.endEditing()
+            if textView.selectedRanges != selection { textView.selectedRanges = selection }
         }
 
         nonisolated func textLayoutManager(_ textLayoutManager: NSTextLayoutManager, textLayoutFragmentFor location: any NSTextLocation, in textElement: NSTextElement) -> NSTextLayoutFragment {
@@ -154,6 +171,7 @@ struct MarkdownEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
+            styleEdits()
             model.update(text: textView.string)
         }
 
